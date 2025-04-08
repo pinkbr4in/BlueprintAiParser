@@ -46,6 +46,16 @@ except ImportError as e:
 
 app = Flask(__name__)
 
+# --- ADD THIS LINE ---
+# Increase the maximum request size (e.g., to 100MB)
+# Adjust the size as needed (value is in bytes)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024 # 100 MB limit
+# --------------------
+
+# --- ADD DEBUG PRINT 1 ---
+print(f"DEBUG: MAX_CONTENT_LENGTH set to: {app.config.get('MAX_CONTENT_LENGTH')}")
+# -------------------------
+
 def html_escape(text):
     """Escapes text for use in HTML attribute values."""
     if not text:
@@ -172,20 +182,83 @@ app.jinja_env.filters['markdown'] = blueprint_markdown
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
+    # --- ADD DEBUG PRINT 2 ---
+    if request.method == 'POST':
+        print(f"DEBUG: MAX_CONTENT_LENGTH during POST request: {app.config.get('MAX_CONTENT_LENGTH')}")
+        try:
+             print(f"DEBUG: Incoming request.content_length: {request.content_length}")
+             content_length_header = request.headers.get('Content-Length')
+             print(f"DEBUG: Incoming Content-Length header: {content_length_header}")
+        except Exception as e:
+             print(f"DEBUG: Could not get request length/header info: {e}")
+    # -------------------------
+
     output = ""
     ai_output = ""
     error = ""
     stats_summary = ""
-    raw_text = request.form.get('blueprint_text', '')
+    raw_text = "" # Initialize raw_text
 
-    # Default formats (ensure these match the class names/keys in get_formatter)
+    # Default formats
     human_format_type = "enhanced_markdown"
-    ai_format_type = "ai_readable" # Assuming you want JSON for AI
+    ai_format_type = "ai_readable"
 
     if request.method == 'POST':
-        if not raw_text:
-            error = "Please paste some Blueprint text."
-        else:
+        # --- REVISED MODIFICATION START ---
+        # Avoid request.form entirely. Read directly from the input stream.
+        try:
+            # Get the content length from the header to avoid reading too much
+            # Note: request.content_length might be None if chunked encoding is used,
+            # but for simple form posts it should be present.
+            content_length = request.content_length
+            if content_length is None:
+                # Try getting from header directly if attribute is None
+                cl_header = request.headers.get('Content-Length')
+                if cl_header:
+                    content_length = int(cl_header)
+
+            if content_length is None:
+                 # Handle missing content length (e.g., chunked transfer) - might need limits
+                 print("WARN: Content-Length header missing. Reading stream with potential risk.")
+                 # Consider adding a hard limit here if needed:
+                 # max_stream_read = 100 * 1024 * 1024 # 100MB read limit example
+                 # raw_body = request.stream.read(max_stream_read)
+                 raw_body = request.stream.read() # Read entire stream (use limit above if needed)
+            elif content_length > app.config['MAX_CONTENT_LENGTH']:
+                 # This check might be redundant if Werkzeug already did it, but belt-and-suspenders
+                 raise ValueError("Content-Length exceeds MAX_CONTENT_LENGTH")
+            else:
+                 # Read exactly the specified number of bytes from the stream
+                 raw_body = request.stream.read(content_length)
+                 print(f"DEBUG: Read {len(raw_body)} bytes from request.stream")
+
+            # Manually parse the raw body (assuming standard form encoding)
+            decoded_body = raw_body.decode('utf-8')
+            if decoded_body.startswith('blueprint_text='):
+                from urllib.parse import unquote_plus
+                raw_text = unquote_plus(decoded_body[len('blueprint_text='):])
+                print("DEBUG: Read blueprint_text using request.stream and manual parsing")
+            else:
+                print("DEBUG: Could not manually parse blueprint_text from raw stream body")
+                raw_text = ""
+                error = "Unexpected request body format."
+
+        except Exception as e:
+             # Catch potential 413 raised during stream reading or other errors
+             print(f"ERROR: Failed to read request stream data: {e}")
+             # Check if the exception itself is the 413 error
+             if "413" in str(e):
+                  error = "Request Entity Too Large (error during stream read)."
+             else:
+                  error = f"Failed to read input data: {e}"
+             raw_text = "" # Ensure raw_text is empty on error
+        # --- REVISED MODIFICATION END ---
+
+        # --- Original logic continues below ---
+        if not error and not raw_text:
+            if not error:
+                 error = "Please paste some Blueprint text."
+        elif not error:
             start_time = datetime.now()
             print(f"Processing request at {start_time}...")
             try:
@@ -230,15 +303,22 @@ def index():
 
             end_time = datetime.now()
             print(f"Processing finished at {end_time}. Duration: {end_time - start_time}")
+    # --- GET request handling ---
+    elif request.method == 'GET':
+         # If you want to pre-populate from GET params (less common for large data)
+         raw_text = request.args.get('blueprint_text', '')
 
     return render_template('index.html',
                           blueprint_output=output,
                           ai_output=ai_output, # Pass the AI output
                           error_message=error,
-                          raw_blueprint_text=raw_text,
+                          raw_blueprint_text=raw_text, # Pass raw_text back to template
                           stats_summary=stats_summary)
 
 if __name__ == '__main__':
     # Use a secret key for session management if needed
     app.config['SECRET_KEY'] = os.urandom(24)
+    # --- ADD DEBUG PRINT 3 ---
+    print(f"DEBUG: Starting Flask app with MAX_CONTENT_LENGTH = {app.config.get('MAX_CONTENT_LENGTH')}")
+    # -------------------------
     app.run(debug=True, host='0.0.0.0', port=5001)

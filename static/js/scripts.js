@@ -22,13 +22,38 @@ document.addEventListener('DOMContentLoaded', function() {
     // Fix table display
     fixTables();
     
-    // Fix Blueprint syntax highlighting (do this AFTER highlight.js processes)
-    setTimeout(fixBlueprintHighlighting, 200);
+    // Initialize highlight.js for non-blueprint blocks
+    // Ensure this runs *after* our override is set up in index.html
+    // but *before* we try to fix blueprint highlighting.
+    if (typeof hljs !== 'undefined' && hljs.highlightAll) {
+         hljs.highlightAll(); // Run the (potentially overridden) highlightAll
+         console.log("highlight.js initialized.");
+    } else {
+         console.warn("highlight.js not found or highlightAll not available.");
+    }
+    
+    // Fix Blueprint syntax highlighting (needs to run after hljs potentially modifies it)
+    setTimeout(fixBlueprintHighlighting, 50); // Short delay after hljs
     
     // Also fix highlighting when switching tabs
     const tabs = document.querySelectorAll('.nav-link');
     tabs.forEach(tab => {
-        tab.addEventListener('click', () => setTimeout(fixBlueprintHighlighting, 200));
+        tab.addEventListener('shown.bs.tab', () => { // Use Bootstrap's event for reliability
+            console.log(`Tab shown: ${tab.id}`);
+            if (tab.id === 'human-tab') {
+                setTimeout(fixBlueprintHighlighting, 50); // Fix BP blocks on human tab
+            } else if (tab.id === 'ai-tab' && typeof hljs !== 'undefined' && hljs.highlightElement) {
+                // Re-highlight JSON specifically if needed when switching back
+                 const aiCodeBlock = document.querySelector('#ai pre code.language-json');
+                 if (aiCodeBlock && !aiCodeBlock.hasAttribute('data-highlighted')) {
+                      hljs.highlightElement(aiCodeBlock);
+                      console.log("Re-highlighted JSON block.");
+                 }
+            }
+            // Always run debug/check functions after tab switch if needed
+             debugBlueprintSpans();
+             checkCssStyles();
+        });
     });
     
     // Debug Blueprint spans
@@ -36,97 +61,129 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Check CSS for span styles
     checkCssStyles();
+
+    // --- ADD COPY BUTTON LOGIC ---
+
+    // Generic copy function
+    function setupCopyButton(buttonId, contentSelector, isHtmlContent = false) {
+        const copyBtn = document.getElementById(buttonId);
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                const contentElement = document.querySelector(contentSelector);
+                if (contentElement) {
+                    let textToCopy = '';
+                    if (isHtmlContent) {
+                        textToCopy = contentElement.textContent || "";
+                    } else {
+                        textToCopy = contentElement.textContent || "";
+                    }
+
+                    if (!textToCopy.trim()) {
+                        console.warn(`No text content found in ${contentSelector} to copy.`);
+                        alert('Nothing to copy!');
+                        return;
+                    }
+
+                    navigator.clipboard.writeText(textToCopy).then(() => {
+                        const originalText = copyBtn.textContent;
+                        copyBtn.textContent = 'Copied!';
+                        copyBtn.disabled = true;
+                        console.log(`Copied content from ${contentSelector}`);
+                        setTimeout(() => {
+                            copyBtn.textContent = originalText;
+                            copyBtn.disabled = false;
+                        }, 2000);
+                    }).catch(err => {
+                        console.error(`Failed to copy from ${contentSelector}: `, err);
+                        let alertMessage = 'Failed to copy. Please try selecting the text manually.';
+                        if (err instanceof DOMException && (err.name === 'NotAllowedError' || err.message.includes('not allowed'))) {
+                             alertMessage = 'Browser denied clipboard access.\n\nPlease ensure the page is focused and clipboard permissions are granted.\n\nYou might need to click directly on the page before clicking the copy button.';
+                        } else if (navigator.clipboard === undefined) {
+                             alertMessage = 'Clipboard API not available. This might happen on non-secure (HTTP) connections or older browsers.';
+                        }
+                        alert(alertMessage);
+                    });
+                } else {
+                    console.error(`Content element not found for selector: ${contentSelector}`);
+                    alert('Could not find content to copy.');
+                }
+            });
+             console.log(`Copy button event listener set up for: ${buttonId}`);
+        } else {
+             console.warn(`Copy button not found: ${buttonId}`);
+        }
+    }
+
+    // Setup for Human-Readable Text
+    setupCopyButton('copy-text-btn', '#human-readable-content', true);
+
+    // Setup for AI-Readable JSON
+    setupCopyButton('copy-json-btn', '#ai-code-content', false);
+
+    // --- END COPY BUTTON LOGIC ---
 });
 
 /**
  * Fix Blueprint highlighting after it might have been processed by highlight.js
  */
 function fixBlueprintHighlighting() {
-    // Process all blueprint code blocks to ensure our classes are respected
-    document.querySelectorAll('pre.blueprint code').forEach(block => {
-        // Remove any hljs-specific styling
-        if (block.classList.contains('hljs')) {
-            // First try to restore from original content if available
-            const originalContent = block.getAttribute('data-original-content');
-            if (originalContent) {
-                // Decode HTML entities in the original content
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = originalContent;
-                const decodedContent = tempDiv.textContent || tempDiv.innerHTML;
-                
-                if (decodedContent && decodedContent.includes('class="bp-')) {
-                    // Set the decoded content back
-                    block.innerHTML = decodedContent;
-                    
-                    // Remove highlight.js classes but keep the nohighlight attribute
-                    block.classList.remove('hljs', 'language-markdown', 'language-javascript');
-                    block.removeAttribute('data-highlighted');
-                    console.log("Restored original content for blueprint block");
-                }
-            }
+     console.log("Attempting to fix Blueprint highlighting...");
+     document.querySelectorAll('pre.blueprint code').forEach(block => {
+        // Check if highlight.js added classes
+        const needsRestore = block.classList.contains('hljs');
+        const originalContent = block.getAttribute('data-original-content');
+
+        if (needsRestore && originalContent) {
+            // Restore original content only if highlight.js likely altered it
+             const tempDiv = document.createElement('div');
+             tempDiv.innerHTML = originalContent; // Decode entities by setting innerHTML
+             const decodedContent = tempDiv.textContent || tempDiv.innerHTML; // Get decoded text or fallback
+
+             if (decodedContent && decodedContent.includes('<span class="bp-')) {
+                 block.innerHTML = decodedContent; // Use decoded content
+                 block.classList.remove('hljs', 'language-markdown', 'language-javascript');
+                 block.removeAttribute('data-highlighted');
+                 console.log("Restored original content for blueprint block.");
+             } else {
+                 console.log("Original content did not contain blueprint spans, skipping restore.");
+             }
+        } else if (needsRestore) {
+             console.warn("Block has hljs class but no original content stored.");
+             // Optionally force remove hljs classes anyway if they cause issues
+             block.classList.remove('hljs', 'language-markdown', 'language-javascript');
+             block.removeAttribute('data-highlighted');
         }
-        
-        // Now explicitly apply styling based on class
+
+        // Apply our styles regardless of restoration
         block.querySelectorAll('span[class^="bp-"]').forEach(span => {
-            // Ensure inline display
-            span.style.display = 'inline';
-            
+            span.style.display = 'inline'; // Ensure inline display
             // Apply specific colors based on the Blueprint class
-            if (span.classList.contains('bp-keyword')) {
-                span.style.color = '#c792ea';
-                span.style.fontWeight = 'bold';
-            }
-            else if (span.classList.contains('bp-event-name')) {
-                span.style.color = '#ffcb6b';
-                span.style.fontWeight = 'bold';
-            }
-            else if (span.classList.contains('bp-var')) {
-                span.style.color = '#79d0ff';
-            }
-            else if (span.classList.contains('bp-func-name')) {
-                span.style.color = '#c792ea';
-                span.style.fontWeight = 'bold';
-            }
-            else if (span.classList.contains('bp-param-name')) {
-                span.style.color = '#ff9cac';
-                span.style.fontStyle = 'italic';
-            }
-            else if (span.classList.contains('bp-data-type')) {
-                span.style.color = '#89ddff';
-            }
-            else if (span.classList.contains('bp-literal-number')) {
-                span.style.color = '#f78c6c';
-            }
-            else if (span.classList.contains('bp-literal-bool')) {
-                span.style.color = '#ff9cac';
-            }
-            else if (span.classList.contains('bp-literal-string')) {
-                span.style.color = '#c3e88d';
-            }
-            // Add more class-specific styling as needed
-        });
-        
-        // Process spans that should be re-created as BP styles
-        block.querySelectorAll('span:not([class^="bp-"])').forEach(span => {
-            const text = span.textContent;
-            
-            // Simple heuristics to identify content types
-            if (text.startsWith('`') && text.endsWith('`') && text.length > 2) {
-                // Likely a variable or entity name
-                span.className = 'bp-var';
-                span.style.color = '#79d0ff';
-            }
-            else if (text.startsWith('**') && text.endsWith('**') && text.length > 4) {
-                // Likely a keyword
-                span.className = 'bp-keyword';
-                span.style.color = '#c792ea';
-                span.style.fontWeight = 'bold';
-            }
+            const classes = span.classList;
+            if (classes.contains('bp-keyword')) { span.style.color = '#c792ea'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-event-name')) { span.style.color = '#ffcb6b'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-func-name')) { span.style.color = '#c792ea'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-var')) { span.style.color = '#79d0ff'; }
+            else if (classes.contains('bp-param-name')) { span.style.color = '#ff9cac'; span.style.fontStyle = 'italic'; }
+            else if (classes.contains('bp-data-type')) { span.style.color = '#89ddff'; }
+            else if (classes.contains('bp-literal-number')) { span.style.color = '#f78c6c'; }
+            else if (classes.contains('bp-literal-bool')) { span.style.color = '#ff9cac'; }
+            else if (classes.contains('bp-literal-string')) { span.style.color = '#c3e88d'; }
+            else if (classes.contains('bp-literal-object')) { span.style.color = '#ffcb6b'; }
+            else if (classes.contains('bp-flow')) { span.style.color = '#f78c6c'; }
+            else if (classes.contains('bp-arrow')) { span.style.color = '#ff9cac'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-branch-True')) { span.style.color = '#26a566'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-branch-False')) { span.style.color = '#ef5350'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-delegate-name')) { span.style.color = '#89ddff'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-operator')) { span.style.color = '#89ddff'; }
+            else if (classes.contains('bp-pin-name')) { span.style.color = '#c3e88d'; }
+            else if (classes.contains('bp-struct-kw') || classes.contains('bp-struct-val')) { span.style.color = '#80cbc4'; }
+            else if (classes.contains('bp-class-name') || classes.contains('bp-component-name') || classes.contains('bp-widget-name')) { span.style.color = '#c3e88d'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-timeline-name') || classes.contains('bp-montage-name') || classes.contains('bp-action-name')) { span.style.color = '#f07178'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-macro-name')) { span.style.color = '#f78c6c'; span.style.fontWeight = 'bold'; }
+            else if (classes.contains('bp-section')) { span.style.color = '#c3e88d'; span.style.fontWeight = 'bold'; }
         });
     });
-    
-    // Update check after fixing
-    debugBlueprintSpans();
+     console.log("Blueprint highlighting fix attempt complete.");
 }
 
 /**
