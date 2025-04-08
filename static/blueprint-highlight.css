@@ -1,0 +1,190 @@
+/* static/blueprint-highlight.css */
+
+/* Main Blueprint code block styling */
+pre.blueprint {
+    background-color: #1e1e2e;
+    color: #e4e4e4;
+    padding: 15px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 14px;
+    border-left: 3px solid #4d78cc;
+    line-height: 1.6;
+  }
+  
+  pre.blueprint code {
+    background-color: transparent;
+    color: #e4e4e4;
+  }
+  
+  /* Blueprint syntax element styles with high specificity */
+  /* Node types and keywords */
+  pre.blueprint .bp-keyword,
+  pre.blueprint code .bp-keyword {
+    color: #c792ea !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  /* Event names */
+  pre.blueprint .bp-event-name,
+  pre.blueprint code .bp-event-name {
+    color: #ffcb6b !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  /* Function names */
+  pre.blueprint .bp-func-name,
+  pre.blueprint code .bp-func-name {
+    color: #c792ea !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  /* Variables */
+  pre.blueprint .bp-var,
+  pre.blueprint code .bp-var {
+    color: #79d0ff !important;
+    display: inline !important;
+  }
+  
+  /* Parameter names */
+  pre.blueprint .bp-param-name,
+  pre.blueprint code .bp-param-name {
+    color: #ff9cac !important;
+    font-style: italic !important;
+    display: inline !important;
+  }
+  
+  /* Data types */
+  pre.blueprint .bp-data-type,
+  pre.blueprint code .bp-data-type {
+    color: #89ddff !important;
+    display: inline !important;
+  }
+  
+  /* Literal values */
+  pre.blueprint .bp-literal-number,
+  pre.blueprint code .bp-literal-number {
+    color: #f78c6c !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-literal-bool,
+  pre.blueprint code .bp-literal-bool {
+    color: #ff9cac !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-literal-string,
+  pre.blueprint code .bp-literal-string {
+    color: #c3e88d !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-literal-object,
+  pre.blueprint code .bp-literal-object {
+    color: #ffcb6b !important;
+    display: inline !important;
+  }
+  
+  /* Flow control */
+  pre.blueprint .bp-flow,
+  pre.blueprint code .bp-flow {
+    color: #f78c6c !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-arrow,
+  pre.blueprint code .bp-arrow {
+    color: #ff9cac !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-branch-True,
+  pre.blueprint code .bp-branch-True {
+    color: #26a566 !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-branch-False,
+  pre.blueprint code .bp-branch-False {
+    color: #ef5350 !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  /* Other Blueprint element styles */
+  pre.blueprint .bp-delegate-name,
+  pre.blueprint code .bp-delegate-name {
+    color: #89ddff !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-operator,
+  pre.blueprint code .bp-operator {
+    color: #89ddff !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-pin-name,
+  pre.blueprint code .bp-pin-name {
+    color: #c3e88d !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-struct-kw,
+  pre.blueprint .bp-struct-val,
+  pre.blueprint code .bp-struct-kw,
+  pre.blueprint code .bp-struct-val {
+    color: #80cbc4 !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-class-name,
+  pre.blueprint .bp-component-name,
+  pre.blueprint .bp-widget-name,
+  pre.blueprint code .bp-class-name,
+  pre.blueprint code .bp-component-name,
+  pre.blueprint code .bp-widget-name {
+    color: #c3e88d !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-timeline-name,
+  pre.blueprint .bp-montage-name,
+  pre.blueprint .bp-action-name,
+  pre.blueprint code .bp-timeline-name,
+  pre.blueprint code .bp-montage-name,
+  pre.blueprint code .bp-action-name {
+    color: #f07178 !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  pre.blueprint .bp-macro-name,
+  pre.blueprint code .bp-macro-name {
+    color: #f78c6c !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }
+  
+  /* Override any transform that might be applied */
+  pre.blueprint span,
+  pre.blueprint code span {
+    text-transform: none !important;
+  }
+  
+  /* Section comments */
+  pre.blueprint .bp-section,
+  pre.blueprint code .bp-section {
+    color: #c3e88d !important;
+    font-weight: bold !important;
+    display: inline !important;
+  }

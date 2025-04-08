@@ -1,14 +1,12 @@
-# --- START OF FILE app.py ---
-
-# ... (imports remain the same) ...
+# app.py
 import os
 import sys
 import json
 import markdown
 import bleach
-import re # Added import
-import uuid # <--- ADD THIS LINE
-from datetime import datetime # Correctly imported
+import re
+import uuid
+from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from markupsafe import Markup
 
@@ -24,7 +22,7 @@ if project_root not in sys.path:
 try:
     import blueprint_parser
     from blueprint_parser.parser import BlueprintParser
-    from blueprint_parser.formatter.formatter import get_formatter # Corrected import path
+    from blueprint_parser.formatter.formatter import get_formatter
     # Import debug flags if needed
     from blueprint_parser import parser as bp_parser_module
     from blueprint_parser.formatter import path_tracer as bp_path_tracer_module
@@ -32,10 +30,11 @@ try:
     from blueprint_parser.formatter import node_formatter as bp_node_formatter_module
 
     # --- Enable Debug Flags ---
-    bp_parser_module.ENABLE_PARSER_DEBUG = True
-    bp_path_tracer_module.ENABLE_PATH_TRACER_DEBUG = True
-    bp_data_tracer_module.ENABLE_TRACER_DEBUG = True
-    bp_node_formatter_module.ENABLE_NODE_FORMATTER_DEBUG = True
+    # Set these to False in production for better performance
+    bp_parser_module.ENABLE_PARSER_DEBUG = False
+    bp_path_tracer_module.ENABLE_PATH_TRACER_DEBUG = False
+    bp_data_tracer_module.ENABLE_TRACER_DEBUG = False
+    bp_node_formatter_module.ENABLE_NODE_FORMATTER_DEBUG = False
     # --------------------------
 
     print("Successfully imported blueprint_parser modules.")
@@ -44,102 +43,132 @@ except ImportError as e:
     print("Current sys.path:", sys.path, file=sys.stderr)
     print("Ensure the 'blueprint_parser' directory exists in the project root folder.", file=sys.stderr)
     sys.exit(1)
-# ... (rest of imports and setup) ...
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB limit
-# --- Add Blueprint Markdown Filter ---
+
+def html_escape(text):
+    """Escapes text for use in HTML attribute values."""
+    if not text:
+        return ""
+    return text.replace('&', '&amp;').replace('"', '&quot;').replace("'", "&#39;")
+
+def clean_html_entities(html_content):
+    """Normalize HTML entities to prevent double escaping."""
+    # Fix double-escaped entities
+    replacements = [
+        ('&amp;lt;', '&lt;'),
+        ('&amp;gt;', '&gt;'),
+        ('&amp;amp;', '&amp;'),
+        ('&amp;quot;', '&quot;'),
+        ('&amp;#39;', '&#39;')
+    ]
+    for old, new in replacements:
+        html_content = html_content.replace(old, new)
+    return html_content
 
 # Create a markdown filter for Jinja2 templates
-# Create a markdown filter for Jinja2 templates
 def blueprint_markdown(text):
-    """Convert markdown to HTML with special handling for blueprint code blocks."""
+    """Convert markdown to HTML, preserving blueprint code blocks with spans intact."""
     if not text:
         return Markup("")
 
+    # Important: Store spans in preprocessed blocks
     local_placeholder_storage = {}
 
-    # Step 1: Replace blueprint blocks with unique HTML comment placeholders
+    # Replace blueprint code blocks with placeholders before markdown processing
     def replace_blueprint_block(match):
-        # Generate a unique ID for the placeholder
+        block_content = match.group(1)
         placeholder_uuid = str(uuid.uuid4())
         placeholder_comment = f"<!-- BP_PLACEHOLDER_{placeholder_uuid} -->"
-        local_placeholder_storage[placeholder_comment] = match.group(1)
-        # print(f"  Placeholder created: {placeholder_comment} for content length {len(match.group(1))}") # DEBUG
+        local_placeholder_storage[placeholder_comment] = block_content
         return placeholder_comment
 
+    # Replace ```blueprint blocks with placeholders
     text_with_placeholders = re.sub(
         r'```blueprint\r?\n(.*?)\r?\n```',
         replace_blueprint_block,
         text,
         flags=re.DOTALL | re.IGNORECASE
     )
-    # print(f"Placeholders generated: {list(local_placeholder_storage.keys())}") # DEBUG
 
-    # Step 2: Convert the modified Markdown (with placeholders) to HTML
+    # Parse markdown, avoiding blueprint blocks
     try:
         html = markdown.markdown(
             text_with_placeholders,
             extensions=['markdown.extensions.tables', 'markdown.extensions.fenced_code', 'markdown.extensions.nl2br']
         )
-        # print("Markdown conversion successful.") # DEBUG
     except Exception as e:
-        print(f"ERROR during markdown conversion: {e}") # DEBUG
+        print(f"ERROR during markdown conversion: {e}")
         return Markup(f"<p>Error during Markdown processing: {e}</p>")
 
-    # Step 3: Replace placeholders with formatted <pre><code> blocks AFTER markdown
-    if local_placeholder_storage:
-        # print("Starting placeholder replacement...") # DEBUG
-        for placeholder_comment, raw_blueprint_code in local_placeholder_storage.items():
-            # Only escape essential HTML characters to preserve code formatting chars
-            escaped_content = raw_blueprint_code.replace('&', '&').replace('<', '<').replace('>', '>')
+    # Now restore the blueprint blocks, making sure to NOT encode any HTML
+    for placeholder, content in local_placeholder_storage.items():
+        # Store the raw span content with explicit encoding prevention
+        # We add both nohighlight attribute and explicit blueprint class
+        blueprint_html = f'<pre class="blueprint"><code class="nohighlight blueprint-code" data-nohighlight="true">{content}</code></pre>'
+        html = html.replace(placeholder, blueprint_html)
 
-            # Construct the final HTML for the blueprint block
-            blueprint_html = f'<pre class="blueprint"><code>{escaped_content}</code></pre>'
+    # Process tables to ensure proper styling
+    html = process_blueprint_tables(html, preserve_params=True)
 
-            # Replace the placeholder comment in the main HTML
-            if placeholder_comment in html:
-                html = html.replace(placeholder_comment, blueprint_html)
-                # print(f"    Replaced '{placeholder_comment}'.") # DEBUG
-            # else:
-                # print(f"    WARNING: Placeholder '{placeholder_comment}' not found in generated HTML.") # DEBUG
-
-    local_placeholder_storage.clear()
-    # print("Placeholder replacement finished.") # DEBUG
-
-    # Step 4: Sanitize the *entire* final HTML
-    # print("Starting HTML sanitization...") # DEBUG
+    # Use a relaxed HTML sanitizer that allows our spans and classes
     allowed_tags = bleach.sanitizer.ALLOWED_TAGS | {'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'hr',
-                   'strong', 'em', 'ul', 'ol', 'li', 'pre', 'code', # Ensure pre/code are allowed
-                   'a', 'span', 'div', 'img', 'table', 'thead', 'tbody',
-                   'tr', 'th', 'td', 'blockquote'}
+               'strong', 'em', 'ul', 'ol', 'li', 'pre', 'code', 'span', 'div',
+               'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'blockquote'}
 
     allowed_attrs = {
-        '*': ['class', 'id', 'style', 'title'],
+        '*': ['class', 'id', 'style', 'data-nohighlight'],
         'a': ['href', 'title', 'id', 'class', 'target'],
-        'img': ['src', 'alt', 'title', 'width', 'height', 'style'],
-        'code': ['class'], # Allow class on code (e.g., language-blueprint if added by fenced_code)
-        'pre': ['class'], # Allow class on pre (e.g., blueprint)
-        'blockquote': ['class'],
-        'span': ['class', 'style']
+        'img': ['src', 'alt', 'title', 'width', 'height'],
+        'code': ['class', 'data-nohighlight'],
+        'pre': ['class'],
+        'span': ['class', 'style'],  # Allow span to have class and style
+        'td': ['colspan', 'rowspan', 'style', 'class'],
+        'th': ['colspan', 'rowspan', 'style', 'class'],
+        'div': ['class', 'style', 'id']
     }
 
     try:
         clean_html = bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
-        # print("HTML sanitization successful.") # DEBUG
+        # Additional cleaning to fix any double-escaped spans
+        clean_html = clean_html_entities(clean_html)
     except Exception as e:
-        print(f"ERROR during HTML sanitization: {e}") # DEBUG
-        clean_html = f"<p>Error during HTML sanitization: {e}</p>" + html # Show error and original HTML
-
-    # Step 5: Add specific formatting AFTER sanitization
-    clean_html = clean_html.replace('→', '<span class="bp-arrow">→</span>')
-
+        print(f"ERROR during HTML sanitization: {e}")
+        clean_html = f"<p>Error during HTML sanitization: {e}</p>"
+    
     return Markup(clean_html)
+
+# --- Keep process_blueprint_tables function ---
+def process_blueprint_tables(html, preserve_params=True):
+    """Process and enhance tables in Blueprint output."""
+    # Find tables using regex (basic approach)
+    table_pattern = r'<table(.*?)>(.*?)</table>'
+
+    def process_table_match(match):
+        table_attrs = match.group(1)
+        table_content = match.group(2)
+
+        # Add a general class for styling
+        if 'class=' not in table_attrs:
+            table_attrs += ' class="blueprint-table"'
+        elif 'blueprint-table' not in re.search(r'class=["\'](.*?)["\']', table_attrs).group(1):
+             table_attrs = re.sub(r'class=(["\'])', r'class=\1blueprint-table ', table_attrs, 1)
+
+        # Rebuild the table tag
+        processed_table = f'<table{table_attrs}>{table_content}</table>'
+
+        # Example: Add specific class if it's a function table (can be unreliable with regex)
+        if '<th>Function</th>' in table_content and '<th>Target</th>' in table_content:
+             processed_table = processed_table.replace('class="blueprint-table', 'class="blueprint-table function-table', 1)
+
+        return processed_table
+
+    # Replace tables using the function
+    processed_html = re.sub(table_pattern, process_table_match, html, flags=re.IGNORECASE | re.DOTALL)
+    return processed_html
 
 # Register the filter with Flask
 app.jinja_env.filters['markdown'] = blueprint_markdown
-
-# --- End Blueprint Markdown Filter ---
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -151,7 +180,7 @@ def index():
 
     # Default formats (ensure these match the class names/keys in get_formatter)
     human_format_type = "enhanced_markdown"
-    ai_format_type = "ai_readable"
+    ai_format_type = "ai_readable" # Assuming you want JSON for AI
 
     if request.method == 'POST':
         if not raw_text:
@@ -169,23 +198,32 @@ def index():
                     # Get Human readable output
                     human_formatter = get_formatter(human_format_type, parser)
                     output = human_formatter.format_graph(input_filename="Pasted Blueprint")
+                    
+                    # Debug print to check if spans are present in the Python-generated output
+                    print("DEBUG: Example spans in output:", output[:500])
+                    if "<span class=" in output:
+                        span_count = output.count("<span class=")
+                        print(f"DEBUG: Found {span_count} spans in formatter output")
+                    else:
+                        print("DEBUG: NO SPANS found in formatter output - check node_formatter.py")
+                    
+                    # Clean any potential double-escaped entities
+                    output = clean_html_entities(output)
+                    
                     stats_summary = human_formatter.format_statistics() # Get stats from the formatter
 
-                    # Get AI-readable output
+                    # Get AI-readable output (JSON)
                     ai_formatter = get_formatter(ai_format_type, parser)
                     ai_output = ai_formatter.format_graph(input_filename="Pasted Blueprint")
 
                     # Debug prints
-                    # print(f"Output type: {type(output)}")
-                    # print(f"Output first 100 chars: {output[:100] if output else 'None'}")
-                    # print(f"AI output first 100 chars: {ai_output[:100] if ai_output else 'None'}")
                     print(f"Output size: {len(output)}, AI output size: {len(ai_output)}")
 
             except ImportError as e:
                  print(f"Runtime Import Error: {e}", file=sys.stderr)
                  error = f"A required module could not be imported: {e}. Please check server logs."
             except Exception as e:
-                 print(f"An error occurred during processing: {e}", file=sys.stderr)
+                 print(f"An unexpected error occurred during processing: {e}", file=sys.stderr)
                  import traceback
                  traceback.print_exc()
                  error = f"An unexpected error occurred: {e}. Check input or server logs for details."
@@ -195,16 +233,12 @@ def index():
 
     return render_template('index.html',
                           blueprint_output=output,
-                          ai_output=ai_output,
+                          ai_output=ai_output, # Pass the AI output
                           error_message=error,
                           raw_blueprint_text=raw_text,
-                          stats_summary=stats_summary) # Pass stats to template
-
+                          stats_summary=stats_summary)
 
 if __name__ == '__main__':
-    # Use a secret key for session management if needed, especially if storing placeholders
+    # Use a secret key for session management if needed
     app.config['SECRET_KEY'] = os.urandom(24)
     app.run(debug=True, host='0.0.0.0', port=5001)
-
-
-# --- END OF FILE app.py ---

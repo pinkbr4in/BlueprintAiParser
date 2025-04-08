@@ -1,504 +1,497 @@
-/* Base styles */
-body { 
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-    line-height: 1.6; 
-    margin: 0; 
-    padding: 0; 
-    background-color: #f8f9fa; 
-    color: #212529; 
-}
+/* Dark Theme for Blueprint Parser */
 
-.container { 
-    max-width: 1200px; 
-    margin: 20px auto; 
-    background: #ffffff; 
-    padding: 25px; 
-    border-radius: 8px; 
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
-}
-
-h1 { 
-    color: #343a40; 
-    border-bottom: 1px solid #dee2e6; 
-    padding-bottom: 10px; 
-    margin-top: 0; 
-}
-
-h2 { 
-    color: #495057; 
-    margin-top: 1.5em; 
-    margin-bottom: 0.5em; 
-}
-
-p { 
-    margin-bottom: 1em; 
-    color: #6c757d; 
-}
-
-/* Form elements */
-textarea { 
-    width: 98%; 
-    height: 250px; 
-    margin-bottom: 15px; 
-    padding: 12px; 
-    border: 1px solid #ced4da; 
-    border-radius: 4px; 
-    font-family: "Consolas", "Monaco", monospace; 
-    font-size: 0.9em; 
-    resize: vertical; 
-}
-
-textarea:focus { 
-    border-color: #80bdff; 
-    outline: 0; 
-    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25); 
-}
-
-button[type="submit"] { 
-    background-color: #28a745; 
-    color: white; 
-    padding: 12px 25px; 
-    border: none; 
-    border-radius: 4px; 
-    cursor: pointer; 
-    font-size: 1.1em; 
-    transition: background-color 0.2s ease; 
-}
-
-button[type="submit"]:hover { 
-    background-color: #218838; 
-}
-
-/* Tabs */
-.tabs { 
-    margin-top: 25px; 
-    border-bottom: 1px solid #dee2e6; 
-    display: flex; 
-}
-
-.tab-button { 
-    background-color: #e9ecef; 
-    border: 1px solid #dee2e6; 
-    border-bottom: none; 
-    padding: 10px 20px; 
-    cursor: pointer; 
-    border-radius: 4px 4px 0 0; 
-    margin-bottom: -1px; 
-    margin-right: 5px; 
-    font-size: 1em; 
-    color: #495057; 
-}
-
-.tab-button.active { 
-    background-color: #ffffff; 
-    border-bottom: 1px solid #ffffff; 
-    font-weight: bold; 
-    color: #007bff; 
-}
-
-/* Output Area */
-.output-header { 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    margin-bottom: 10px; 
-    padding-bottom: 10px; 
-    border-bottom: 1px solid #eee;
-}
-
-.output-header h2 { 
-    margin: 0; 
-    font-size: 1.3em; 
-}
-
-.result-box { 
-    background-color: #ffffff; 
-    overflow-x: auto; 
-    font-size: 0.95em; 
+:root {
+    /* Dark theme colors */
+    --bg-dark: #1a1a1a;
+    --bg-darker: #141414;
+    --bg-code: #1e1e2e;
+    --bg-card: #242430;
+    --text-primary: #e4e4e4;
+    --text-secondary: #b8b8b8;
+    --text-muted: #888888;
+    --border-color: #333340;
+    
+    /* Blueprint syntax colors */
+    --bp-var: #79d0ff;            /* Variables (blue) */
+    --bp-node-type: #c792ea;      /* Node types (purple) */
+    --bp-flow: #f78c6c;           /* Flow control (orange) */
+    --bp-arrow: #ff9cac;          /* Arrows (pink) */
+    --bp-section: #c3e88d;        /* Section headers (green) */
+    --bp-branch-true: #26a566;    /* True branches (green) */
+    --bp-branch-false: #ef5350;   /* False branches (red) */
+  }
+  
+  /* Base styles */
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-darker);
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin: 0;
     padding: 0;
-}
-
-/* Copy Button */
-.copy-button { 
-    background-color: #007bff; 
-    color: white; 
-    padding: 6px 12px; 
-    border: none; 
-    border-radius: 4px; 
-    cursor: pointer; 
-    font-size: 0.9em; 
-}
-
-.copy-button:hover { 
-    background-color: #0056b3; 
-}
-
-/* Enhanced Blueprint styling */
-.result-box h1, .result-box h2, .result-box h3, .result-box h4 { 
-    margin-top: 1.2em; 
-    margin-bottom: 0.6em; 
-    color: #343a40; 
-}
-
-.result-box h1 { 
-    font-size: 2em; 
-    border-bottom: 2px solid #eaecef; 
-    padding-bottom: 0.3em; 
-    margin-top: 24px; 
-    margin-bottom: 16px; 
-    color: #24292e;
-}
-
-.result-box h2 { 
-    font-size: 1.5em; 
-    border-bottom: 1px solid #eaecef; 
-    padding-bottom: 0.3em; 
-    margin-top: 24px; 
-    margin-bottom: 16px; 
-    color: #24292e;
-}
-
-.result-box hr { 
-    border: 0; 
-    border-top: 1px solid #eee; 
-    margin: 1.5em 0; 
-}
-
-.result-box code { 
-    background-color: #e9ecef; 
-    padding: 0.2em 0.4em; 
-    margin: 0; 
-    font-size: 85%; 
-    border-radius: 3px; 
-    font-family: "Consolas", "Monaco", monospace; 
-    color: #c7254e;
-}
-
-.result-box pre { 
-    background-color: #1e2b38; 
-    color: #f8f9fa; 
-    padding: 15px; 
-    border-radius: 4px; 
-    overflow-x: auto; 
-    font-size: 0.9em; 
-    line-height: 1.45; 
-}
-
-.result-box pre code { 
-    background-color: transparent; 
-    padding: 0; 
-    color: inherit; 
-    font-size: inherit; 
-}
-
-/* Enhanced blockquote style for descriptions */
-.result-box blockquote { 
-    border-left: 4px solid #007acc;
-    background-color: #f0f7ff;
-    padding: 12px 15px;
-    color: #333;
-    margin-left: 0;
-    margin-right: 0;
-    margin-bottom: 20px;
-    border-radius: 0 4px 4px 0;
-}
-
-/* Style for TOC */
-.result-box ol { 
-    padding-left: 25px;
-}
-
-.result-box ol li { 
-    margin-bottom: 8px; 
-}
-
-.result-box ol li a { 
-    color: #0366d6; 
-    text-decoration: none; 
-    transition: color 0.2s; 
-}
-
-.result-box ol li a:hover { 
-    color: #0056b3; 
-    text-decoration: underline; 
-}
-
-/* Blueprint code styling */
-.result-box pre.blueprint {
-    background-color: #1e293b; /* Darker blue background */
-    color: #e2e8f0;
-    font-family: 'Consolas', 'Monaco', monospace;
-    line-height: 1.6;
-    padding: 1.5rem;
-    border-radius: 6px;
-    border-left: 4px solid #3b82f6;
-    margin-bottom: 1.5rem;
-}
-
-/* Section headers */
-.result-box pre.blueprint .section-header {
-    color: #93c5fd;
-    font-weight: bold;
-    font-size: 1.1em;
-    border-bottom: 1px solid #475569;
-    padding-bottom: 0.5rem;
-    margin-top: 1rem;
-    margin-bottom: 0.5rem;
-    display: block;
-}
-
-/* Flow and execution paths */
-.result-box pre.blueprint .exec-path {
-    color: #60a5fa;
-    font-weight: bold;
-}
-
-/* Node actions */
-.result-box pre.blueprint .node-action {
-    color: #34d399;
-    font-weight: bold;
-}
-
-/* Variables and pins */
-.result-box pre.blueprint .variable {
-    color: #fbbf24;
-}
-
-/* Function arguments */
-.result-box pre.blueprint .args {
-    color: #c4b5fd;
-    font-style: italic;
-}
-
-/* End markers and conditionals */
-.result-box pre.blueprint .pin-marker {
-    color: #f87171;
-    font-weight: bold;
-}
-
-/* Visual indentation */
-.result-box pre.blueprint .tree-line {
-    color: #64748b;
-    opacity: 0.7;
-}
-
-/* Success/failure indicators */
-.result-box pre.blueprint .success {
-    color: #22c55e;
-}
-
-.result-box pre.blueprint .failure {
-    color: #ef4444;
-}
-
-/* Visual indentation */
-.result-box pre.blueprint .indentation {
-    opacity: 0.5;
-    border-left: 1px solid rgba(255,255,255,0.1); 
-}
-
-/* Mermaid specific styles */
-.mermaid {
-    font-family: 'Consolas', 'Monaco', monospace;
-    text-align: center; /* Center diagram */
-}
-
-.mermaid svg { 
-    max-width: 100%; 
-    height: auto; 
-    display: block; 
-    margin: 1em auto; 
-    background-color: white;
+  }
+  
+  .container {
+    max-width: 1200px;
+    margin: 20px auto;
+    background-color: var(--bg-dark);
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--text-primary);
+  }
+  
+  h1 {
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+  }
+  
+  a {
+    color: #4d78cc;
+    text-decoration: none;
+  }
+  
+  a:hover {
+    text-decoration: underline;
+  }
+  
+  p {
+    color: var(--text-secondary);
+  }
+  
+  /* Form elements */
+  textarea {
+    width: 98%;
+    height: 250px;
+    background-color: var(--bg-code);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
-    padding: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .container { 
-        padding: 15px;
-        margin: 10px;
-    }
-    .tabs {
-        flex-wrap: wrap;
-    }
-    .tab-button {
-        margin-bottom: 5px;
-    }
-}
-
-/* Blueprint output styling */
-.markdown-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    line-height: 1.6;
-    color: #24292e;
+    padding: 12px;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 14px;
+  }
+  
+  textarea:focus {
+    outline: none;
+    border-color: #4d78cc;
+    box-shadow: 0 0 0 2px rgba(77, 120, 204, 0.25);
+  }
+  
+  button {
+    background-color: #26a566;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  
+  button:hover {
+    background-color: #1e8a55;
+  }
+  
+  /* Tab styling */
+  .nav-tabs {
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  .nav-tabs .nav-link {
+    color: var(--text-secondary);
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+  }
+  
+  .nav-tabs .nav-link.active {
+    color: var(--text-primary);
+    background-color: var(--bg-dark);
+    border-bottom-color: var(--bg-dark);
+  }
+  
+  /* Card styling */
+  .card {
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+  }
+  
+  .card-header {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  /* Blueprint blocks */
+  pre.blueprint {
+    background-color: var(--bg-code);
+    color: var(--text-primary);
     padding: 15px;
-}
-
-/* Table styling */
-.markdown-body table {
-    border-collapse: collapse;
-    width: 100%;
-    margin: 16px 0;
-}
-
-.markdown-body table th,
-.markdown-body table td {
-    padding: 8px 12px;
-    border: 1px solid #dfe2e5;
-}
-
-.markdown-body table th {
-    background-color: #f6f8fa;
-    font-weight: 600;
-}
-
-/* Blueprint code blocks within markdown */
-.markdown-body pre {
-    background-color: #f6f8fa;
-    border-radius: 3px;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    padding: 16px;
-    overflow: auto;
-    font-size: 85%;
-    line-height: 1.45;
-}
-
-.markdown-body pre code.language-blueprint {
-    /* Specific styles for blueprint blocks if needed */
-    /* Example: Add border or slightly different background */
-    border-left: 3px solid #0366d6;
-    display: block; /* Ensure code block takes full width */
-    white-space: pre; /* Preserve whitespace */
-    padding: 1em;
-}
-
-/* Blueprint specific styling (applied by markdown extensions or JS) */
-.bp-arrow {
-    display: inline-block;
-    color: #0366d6;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 14px;
+    border-left: 3px solid #4d78cc;
+    line-height: 1.6;
+  }
+  
+  /* Event header styling */
+  .custom-event-header {
+    color: var(--bp-section);
     font-weight: bold;
-    margin-right: 6px;
-}
-
-.bp-line {
-    display: block; /* Changed from inline-block */
-    position: relative;
-    /* padding-left: 8px; Removed for indent classes */
-    margin: 2px 0; /* Reduced margin */
-    white-space: pre; /* Keep whitespace */
-}
-
-/* Tree-like indentation styling */
-.markdown-body pre code .indent-4 { padding-left: 20px !important; }
-.markdown-body pre code .indent-8 { padding-left: 40px !important; }
-.markdown-body pre code .indent-12 { padding-left: 60px !important; }
-.markdown-body pre code .indent-16 { padding-left: 80px !important; }
-/* Add more as needed */
-
-/* Branch lines (Complex - requires specific HTML structure) */
-/* The following are placeholders and might need adjustments based on HTML */
-.bp-branch:before {
-    content: "";
-    position: absolute;
-    left: 10px; /* Adjust based on indent */
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background-color: #0366d6;
-}
-
-/* Section highlighting */
-.section-variable-operations { border-left: 3px solid #28a745; padding-left: 12px; margin-bottom: 1em; }
-.section-function-calls { border-left: 3px solid #fd7e14; padding-left: 12px; margin-bottom: 1em; }
-.section-unconnected { border-left: 3px solid #6c757d; padding-left: 12px; margin-bottom: 1em; }
-
-/* JSON output styling for AI-readable format */
-#ai pre code.json {
-    display: block;
-    background-color: #282c34;
-    color: #abb2bf;
-    padding: 16px;
-    border-radius: 4px;
-    white-space: pre-wrap; /* Wrap long lines */
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    font-size: 0.9em;
-}
-
-/* Syntax highlighting for JSON (can be done via JS or server-side) */
-/* These are fallback styles if JS highlighting fails */
-#ai pre code.json .json-string { color: #98c379; }
-#ai pre code.json .json-number { color: #d19a66; }
-#ai pre code.json .json-boolean { color: #56b6c2; }
-#ai pre code.json .json-null { color: #56b6c2; }
-#ai pre code.json .json-key { color: #e06c75; }
-#ai pre code.json .json-error { color: red; font-style: italic; }
-
-/* Tab styling (Using Bootstrap classes, so minimal custom CSS needed) */
-#outputTabs {
-    margin-bottom: 0; /* Remove bottom margin as it's part of card-header */
-    border-bottom: 1px solid #dee2e6; /* Add border if not handled by Bootstrap */
-}
-
-#outputTabs .nav-link {
-    border-radius: 0.25rem 0.25rem 0 0 !important; /* Ensure top corners are rounded */
-}
-
-/* Copy button styling */
-#copy-btn {
-    /* Using Bootstrap btn classes, customize if needed */
-    /* Example: */
-    /* background-color: #0366d6; */
-    /* color: white; */
-    /* transition: background-color 0.2s; */
-}
-
-#copy-btn:hover {
-    /* background-color: #024ea2; */
-}
-
-#copy-btn:disabled {
-    cursor: default;
-    opacity: 0.65;
-}
-
-/* Stats Summary Box */
-.stats-summary {
-    background-color: #f8f9fa;
-    border: 1px solid #e9ecef;
-    border-radius: 4px;
-    padding: 10px 15px;
-    margin-bottom: 15px;
-}
-.stats-summary h6 {
     margin-bottom: 8px;
-    color: #495057;
-}
-.stats-summary pre code {
-    background-color: transparent;
-    color: #6c757d;
-    padding: 0;
-    font-size: 0.85em;
-    white-space: pre-wrap; /* Allow wrapping */
+    font-size: 1.1em;
+  }
+  
+  .event-name {
+    color: #ffcb6b;  /* Yellow color for event names */
+    font-weight: bold;
+  }
+  
+  .event-args {
+    color: #89ddff;  /* Cyan color for arguments */
+  }
+  
+  /* Blueprint syntax coloring */
+  .bp-node-type {
+    color: var(--bp-node-type);
+    font-weight: bold;
+  }
+  
+  .bp-var {
+    color: var(--bp-var);
+  }
+  
+  .bp-arrow {
+    color: var(--bp-arrow);
+    font-weight: bold;
+  }
+  
+  .bp-flow {
+    color: var(--bp-flow);
+  }
+  
+  .bp-section {
+    color: var(--bp-section);
+    font-weight: bold;
+  }
+  
+  .bp-branch-True {
+    color: var(--bp-branch-true);
+    font-weight: bold;
+  }
+  
+  .bp-branch-False {
+    color: var(--bp-branch-false);
+    font-weight: bold;
+  }
+  
+  /* Allow spans to display inline in code */
+  pre.blueprint span {
+    display: inline !important;
+  }
+  
+  /* Tables */
+  .markdown-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+  }
+  
+  .markdown-body table th,
+  .markdown-body table td {
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+  
+  .markdown-body table th {
+    background-color: rgba(0, 0, 0, 0.2);
+    font-weight: bold;
+  }
+  
+  .markdown-body table tr:nth-child(even) {
+    background-color: rgba(255, 255, 255, 0.03);
+  }
+  
+  /* Make function parameters overflow horizontally */
+  .function-table td:nth-child(3) {
+    max-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  
+  /* Fix span rendering in tables */
+  .blueprint-table span {
+    display: inline !important;
+  }
+  
+  .blueprint-table td span {
+    display: inline !important;
+  }
+  
+  /* Variable highlighting in tables */
+  .blueprint-table td:first-child {
+    color: var(--bp-var);
+    font-weight: bold;
+  }
+  
+  /* Type highlighting in tables */
+  .blueprint-table td:nth-child(2) {
+    color: #89ddff;  /* Cyan for types */
+  }
+  
+  /* Function names in table */
+  .blueprint-table td:first-child:not(.var) {
+    color: var(--bp-node-type);
+    font-weight: bold;
+  }
+  
+  /* JSON styling */
+  pre code.language-json {
+    background-color: var(--bg-code);
+    color: var(--text-primary);
+  }
+  
+  /* Stats summary */
+  .stats-summary {
+    background-color: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 20px;
+  }
+  
+  /* Alerts */
+  .alert-danger {
+    background-color: #481a1d;
+    color: #f8d7da;
+    border-color: #641e23;
+  }
+  
+  /* Bootstrap overrides */
+  .text-muted {
+    color: var(--text-muted) !important;
+  }
+  
+  .btn-success {
+    background-color: #26a566;
+    border-color: #1e8a55;
+  }
+  
+  .btn-success:hover {
+    background-color: #1e8a55;
+    border-color: #1a7a4a;
+  }
+  
+  .btn-secondary {
+    background-color: #4d78cc;
+    border-color: #3a68c1;
+  }
+  
+  .btn-secondary:hover {
+    background-color: #3a68c1;
+    border-color: #3460b7;
+  }
+  
+  /* Markdown body formatting */
+  .markdown-body {
+    color: var(--text-primary);
+  }
+  
+  .markdown-body pre {
+    background-color: var(--bg-code);
+    color: var(--text-primary);
+    padding: 15px;
+    border-radius: 4px;
+    overflow-x: auto;
+  }
+  
+  .markdown-body code {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #f8f8f2;
+    padding: 2px 4px;
+    border-radius: 3px;
+  }
+  
+  .markdown-body hr {
+    border: 0;
+    border-top: 1px solid var(--border-color);
+    margin: 20px 0;
+  }
+  
+  .markdown-body blockquote {
+    border-left: 4px solid #4d78cc;
+    background-color: rgba(77, 120, 204, 0.1);
+    padding: 10px 15px;
+    margin: 0 0 20px;
+  }
+  
+  /* Styles for existing span elements in tables and code */
+  .bp-keyword, .bp-event-name, .bp-data-type, .bp-var,
+  .bp-func-name, .bp-param-name, .bp-delegate-name,
+  .bp-literal-number, .bp-literal-bool, .bp-struct-kw,
+  .bp-struct-val, .bp-operator, .bp-section, 
+  .bp-literal-string, .bp-literal-object, .bp-pin-name {
+    display: inline !important;
+  }
+  
+  .bp-keyword {
+    color: var(--bp-node-type);
+    font-weight: bold;
+  }
+  
+  .bp-event-name {
+    color: #ffcb6b;
+    font-weight: bold;
+  }
+  
+  .bp-data-type {
+    color: #89ddff;
+  }
+  
+  .bp-func-name {
+    color: var(--bp-node-type);
+    font-weight: bold;
+  }
+  
+  .bp-param-name {
+    color: #ff9cac;
+    font-style: italic;
+  }
+
+/* Ensure consistent coloring for all Blueprint elements */
+.bp-event-name, .bp-func-name, .bp-param-name, .bp-var,
+.bp-delegate-name, .bp-class-name, .bp-component-name,
+.bp-widget-name, .bp-timeline-name, .bp-montage-name,
+.bp-action-name, .bp-macro-name {
+  display: inline !important;
 }
 
-/* Mobile responsiveness (Leverage Bootstrap grid, add specifics if needed) */
-@media (max-width: 768px) {
-    .markdown-body {
-        padding: 10px;
-        font-size: 0.95em;
+/* Core blueprint elements */
+.bp-event-name {
+  color: #ffcb6b;  /* Distinctive yellow for events */
+  font-weight: bold;
+}
+
+.bp-func-name {
+  color: #c792ea;  /* Purple for functions */
+  font-weight: bold;
+}
+
+.bp-var {
+  color: #79d0ff;  /* Bright blue for variables */
+}
+
+.bp-delegate-name {
+  color: #89ddff;  /* Cyan for delegates */
+  font-weight: bold;
+}
+
+/* Add missing essential class definitions */
+.bp-macro-name {
+  color: #f78c6c;  /* Orange for macros */
+  font-weight: bold;
+}
+
+.bp-class-name, .bp-component-name, .bp-widget-name {
+  color: #c3e88d;  /* Green for classes/components/widgets */
+  font-weight: bold;
+}
+
+.bp-timeline-name, .bp-montage-name, .bp-action-name {
+  color: #f07178;  /* Coral for special actions */
+  font-weight: bold;
+}
+
+/* Ensure proper nesting in formatted output */
+.markdown-body pre.blueprint span[class^="bp-"] {
+  display: inline !important;
+}
+
+/* Fix for tables */
+.blueprint-table td span[class^="bp-"] {
+  display: inline !important;
+}
+  .bp-delegate-name {
+    color: #89ddff;
+  }
+  
+  .bp-literal-number {
+    color: #f78c6c;
+  }
+  
+  .bp-literal-bool {
+    color: #ff9cac;
+  }
+  
+  .bp-literal-string {
+    color: #c3e88d;
+  }
+  
+  .bp-literal-object {
+    color: #ffcb6b;
+  }
+  
+  .bp-operator {
+    color: #89ddff;
+  }
+  
+  .bp-pin-name {
+    color: #c3e88d;
+  }
+  
+  .bp-struct-kw, .bp-struct-val {
+    color: #80cbc4;
+  }
+  
+  /* Mobile responsiveness */
+  @media (max-width: 768px) {
+    .container {
+      padding: 15px;
+      margin: 10px;
+    }
+    
+    pre.blueprint {
+      font-size: 12px;
     }
     
     .markdown-body table {
-        display: block; /* Make table scrollable horizontally */
-        overflow-x: auto;
-        white-space: nowrap; /* Prevent wrapping within table cells */
+      display: block;
+      overflow-x: auto;
     }
+  }
 
-    /* Adjust container padding on smaller screens */
-    .container {
-        padding-left: 15px;
-        padding-right: 15px;
-    }
+/* Fix for event names in Custom Event headers */
+pre.blueprint .bp-event-name,
+h3 .bp-event-name,
+.custom-event-header .bp-event-name {
+  color: #ffcb6b !important;  /* Force yellow color for event names */
+  font-weight: bold;
+  display: inline !important;
+}
+
+/* Make sure code spans display correctly */
+pre.blueprint code span {
+  display: inline !important;
+}
+
+/* Fix for function names in code blocks */
+pre.blueprint .bp-func-name {
+  color: #c792ea !important; /* Purple for functions */
+  font-weight: bold;
+  display: inline !important;
+}
+
+/* Fix for all BP class spans to be displayed inline in code blocks */
+pre.blueprint span[class^="bp-"] {
+  display: inline !important;
 }
