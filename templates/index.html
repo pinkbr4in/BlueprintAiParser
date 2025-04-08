@@ -20,7 +20,7 @@
     </style>
 </head>
 <body>
-    <div class="container mt-4 mb-5"> <!-- Added mb-5 for bottom spacing -->
+    <div class="container mt-4 mb-5">
         <h1>Unreal Engine Blueprint Parser</h1>
         <p>Paste the raw text copied from the Blueprint editor below and click "Parse Blueprint".</p>
 
@@ -47,7 +47,15 @@
                         <div class="card-header">
                             <ul class="nav nav-tabs card-header-tabs" id="outputTabs" role="tablist">
                                 <li class="nav-item">
-                                    <a class="nav-link active" id="human-tab" data-toggle="tab" href="#human" role="tab" aria-controls="human" aria-selected="true">Human-Readable</a>
+                                    <div class="d-flex align-items-center">
+                                        <a class="nav-link active" id="human-tab" data-toggle="tab" href="#human" role="tab" aria-controls="human" aria-selected="true">Human-Readable</a>
+                                        <button id="copy-human-btn" class="btn btn-sm btn-secondary ml-2" title="Copy Human-Readable Markdown">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard" viewBox="0 0 16 16">
+                                              <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z"/>
+                                              <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z"/>
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </li>
                                 <li class="nav-item">
                                     <a class="nav-link" id="ai-tab" data-toggle="tab" href="#ai" role="tab" aria-controls="ai" aria-selected="false">AI-Readable (JSON)</a>
@@ -60,13 +68,15 @@
                                 <div class="tab-pane fade show active" id="human" role="tabpanel" aria-labelledby="human-tab">
                                      {% if stats_summary %}
                                           <div class="stats-summary mb-3">
-                                              <!-- Use the blueprint_markdown filter for the stats summary -->
                                               {{ stats_summary | markdown | safe }}
                                           </div>
                                       {% endif %}
+
+                                    <!-- Store raw output for copying -->
+                                    <script type="text/template" id="raw-markdown-output" style="display: none;">{{ blueprint_output }}</script>
+
                                     {% if blueprint_output %}
                                       <div class="markdown-body">
-                                        <!-- Apply markdown filter -->
                                         {{ blueprint_output | markdown | safe }}
                                       </div>
                                     {% elif request.method == 'POST' and not error_message %}
@@ -76,10 +86,13 @@
                                 <!-- AI Readable Tab -->
                                 <div class="tab-pane fade" id="ai" role="tabpanel" aria-labelledby="ai-tab">
                                     {% if ai_output %}
-                                      <!-- Add copy button -->
-                                      <button id="copy-btn" class="btn btn-secondary btn-sm mb-2 float-right">Copy JSON</button>
-                                      <div style="clear:both;"></div> <!-- Clear float -->
-                                      <!-- Use 'language-json' class for highlight.js -->
+                                      <button id="copy-ai-btn" class="btn btn-secondary btn-sm mb-2 float-right" title="Copy AI JSON">
+                                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard" viewBox="0 0 16 16">
+                                              <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z"/>
+                                              <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z"/>
+                                            </svg>
+                                      </button>
+                                      <div style="clear:both;"></div>
                                       <pre><code class="language-json">{{ ai_output }}</code></pre>
                                     {% elif request.method == 'POST' and not error_message %}
                                        <p class="text-muted">No AI-readable output generated.</p>
@@ -107,8 +120,6 @@
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
     <!-- Highlight.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <!-- Optional: Load specific languages if needed, though 'json' is usually built-in -->
-    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script> -->
 
     <!-- Custom Scripts -->
     <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
@@ -117,42 +128,53 @@
         // Initialize highlight.js
         hljs.highlightAll();
 
-        // Copy AI output to clipboard
-        const copyBtn = document.getElementById('copy-btn');
-        if (copyBtn) {
-            copyBtn.addEventListener('click', () => {
+        // --- Generic Copy Function ---
+        function copyToClipboard(text, buttonElement) {
+             navigator.clipboard.writeText(text).then(() => {
+                const originalContent = buttonElement.innerHTML;
+                buttonElement.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-check-lg" viewBox="0 0 16 16"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425z"/></svg>`;
+                buttonElement.disabled = true;
+                buttonElement.classList.add('btn-success');
+                buttonElement.classList.remove('btn-secondary');
+                setTimeout(() => {
+                    buttonElement.innerHTML = originalContent;
+                    buttonElement.disabled = false;
+                    buttonElement.classList.remove('btn-success');
+                    buttonElement.classList.add('btn-secondary');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                alert('Failed to copy. See console.');
+            });
+        }
+
+        // --- Copy AI Output ---
+        const copyAiBtn = document.getElementById('copy-ai-btn');
+        if (copyAiBtn) {
+            copyAiBtn.addEventListener('click', () => {
                 const aiCodeElement = document.querySelector('#ai pre code.language-json');
-                if (aiCodeElement) {
-                    const textToCopy = aiCodeElement.textContent;
-                    navigator.clipboard.writeText(textToCopy).then(() => {
-                        const originalText = copyBtn.textContent;
-                        copyBtn.textContent = 'Copied!';
-                        copyBtn.disabled = true;
-                        setTimeout(() => {
-                            copyBtn.textContent = originalText;
-                            copyBtn.disabled = false;
-                        }, 2000);
-                    }).catch(err => {
-                        console.error('Failed to copy JSON: ', err);
-                        alert('Failed to copy JSON. See console.');
-                    });
+                if (aiCodeElement && aiCodeElement.textContent) {
+                    copyToClipboard(aiCodeElement.textContent, copyAiBtn);
                 } else {
-                     console.warn('AI output code block not found.');
+                     console.warn('AI output code block not found or empty.');
+                     alert('Could not find AI output to copy.');
                 }
             });
         }
 
-        // Optional: Re-highlight when tabs change if dynamic content loading is ever added
-        // $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
-        //     const targetPane = $(e.target).attr("href");
-        //     const codeBlocks = document.querySelectorAll(targetPane + ' pre code');
-        //     if (codeBlocks.length > 0) {
-        //         codeBlocks.forEach((block) => {
-        //             hljs.highlightElement(block);
-        //         });
-        //     }
-        // });
-
+         // --- Copy Human-Readable Output ---
+        const copyHumanBtn = document.getElementById('copy-human-btn');
+        if (copyHumanBtn) {
+             copyHumanBtn.addEventListener('click', () => {
+                const rawMarkdownElement = document.getElementById('raw-markdown-output');
+                 if (rawMarkdownElement && rawMarkdownElement.textContent) {
+                     copyToClipboard(rawMarkdownElement.textContent, copyHumanBtn);
+                 } else {
+                     console.warn('Raw Markdown output element not found or empty.');
+                     alert('Could not find human-readable output to copy.');
+                 }
+             });
+        }
     </script>
 </body>
 </html>

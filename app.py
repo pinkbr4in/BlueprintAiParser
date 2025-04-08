@@ -47,7 +47,7 @@ except ImportError as e:
 # ... (rest of imports and setup) ...
 
 app = Flask(__name__)
-
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB limit
 # --- Add Blueprint Markdown Filter ---
 
 # Create a markdown filter for Jinja2 templates

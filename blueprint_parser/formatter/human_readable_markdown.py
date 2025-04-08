@@ -15,7 +15,7 @@ from ..nodes import (
 from .formatter import BaseFormatter
 
 class EnhancedMarkdownFormatter(BaseFormatter):
-    """Formats blueprint data into enhanced human-readable Markdown."""
+    """Formats blueprint data into enhanced human-readable Markdown using tree structure."""
 
     def format_graph(self, input_filename: Optional[str] = None) -> str:
         """Formats the entire blueprint graph into enhanced human-readable Markdown."""
@@ -67,49 +67,42 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 # Add header for entry point with anchor
                 output_lines.append(f"### {start_node_header_desc} <a id=\"{entry_point_id}\"></a>")
 
-                # Add comment if available, using blockquote
-                start_node_comment = self.comment_handler.get_comment(start_node.guid)
-                if start_node_comment:
-                    comment_lines = start_node_comment.strip().split('\n')
-                    for c_line in comment_lines:
-                        output_lines.append(f"> {c_line}")
-                    output_lines.append("") # Blank line after comment
+                # --- REMOVED direct comment printing here - handled by PathTracer ---
+                # start_node_comment = self.comment_handler.get_comment(start_node.guid)
+                # if start_node_comment:
+                #    ... (removed block)
 
                 # --- Trace Path ---
                 output_lines.append("```blueprint") # Start blueprint code block
 
-                path_specific_visited = {start_node.guid}
+                # --- CORRECTION HERE ---
+                # Initialize path_specific_visited as EMPTY.
+                # trace_path will add the start_node itself.
+                path_specific_visited = set()
+                # -----------------------
+
+                # Add start node to global processed set *if* it's executable
+                # (We still need to do this here, before calling trace_path)
                 if not start_node.is_pure():
                     processed_globally.add(start_node.guid)
 
-                first_exec_output = start_node.get_execution_output_pin()
-                node_to_trace_first = None
-                if first_exec_output and first_exec_output.linked_pins:
-                    target_pin = first_exec_output.linked_pins[0]
-                    node_to_trace_first = self.parser.get_node_by_guid(target_pin.node_guid)
-
-                lines_to_add = []
-                if node_to_trace_first:
-                    path_lines = self.path_tracer.trace_path(
-                        start_node=node_to_trace_first,
-                        processed_guids_in_path=path_specific_visited.copy(),
-                        processed_globally=processed_globally,
-                        indent=""
-                    )
-                    lines_to_add.extend(path_lines) # Use extend for list of lines
-                elif first_exec_output:
-                    lines_to_add.append(f"{self.path_tracer.exec_prefix}[Path ends: Pin '{first_exec_output.name}' unlinked]")
-                else:
-                    lines_to_add.append(f"{self.path_tracer.exec_prefix}[Path ends: No execution output]")
+                # Call trace_path with the *empty* path-specific set
+                path_lines = self.path_tracer.trace_path(
+                    start_node=start_node,
+                    processed_guids_in_path=path_specific_visited, # Pass the empty set directly
+                    processed_globally=processed_globally,
+                    indent_prefix="",
+                    is_last_segment=True
+                )
 
                 # --- Append the generated path lines ---
-                output_lines.extend(lines_to_add)
+                output_lines.extend(path_lines)
                 # --- End Append ---
 
                 output_lines.append("```") # End blueprint code block
                 output_lines.append("\n---\n") # Separator between entry points
 
-        # --- Summaries Section (Moved outside the loop) ---
+        # --- Summaries Section (Unchanged) ---
         all_variable_ops = self.extract_variable_operations(processed_globally)
         all_function_calls = self.extract_function_calls(processed_globally)
 
@@ -121,8 +114,10 @@ class EnhancedMarkdownFormatter(BaseFormatter):
             for var_name in sorted(all_variable_ops.keys()):
                 op_data = all_variable_ops[var_name]
                 var_type = f"`{op_data.get('type', '?')}`"
-                value_str = op_data['values'][0] if op_data['values'] else '?'
-                output_lines.append(f"| `{var_name}` | {var_type} | `{value_str}` |")
+                # Show only unique values set for summary
+                unique_values = sorted(list(set(op_data['values'])))
+                value_str = ", ".join(f"`{v}`" for v in unique_values) if unique_values else '?'
+                output_lines.append(f"| `{var_name}` | {var_type} | {value_str} |")
             output_lines.append("\n---\n")
 
         if all_function_calls:
@@ -130,16 +125,21 @@ class EnhancedMarkdownFormatter(BaseFormatter):
             output_lines.append("*(Functions called during execution)*\n")
             output_lines.append("| Function | Target | Parameters Called With | Latent |")
             output_lines.append("|----------|--------|------------------------|--------|")
+            # Aggregate calls for summary
             for func_name in sorted(all_function_calls.keys()):
                 call_data = all_function_calls[func_name]
-                params = call_data['calls'][0]['params']
+                # For simplicity, show params from the first call in summary
+                first_call = call_data['calls'][0]
+                params = first_call['params']
                 param_str = ", ".join(f"{p}=`{v}`" for p, v in params.items()) if params else "-"
-                target_str = call_data['calls'][0]['target']
-                latent_str = "Yes" if call_data['calls'][0]['is_latent'] else "No"
-                output_lines.append(f"| `{func_name}` | `{target_str}` | {param_str} | {latent_str} |")
+                target_str = first_call['target']
+                latent_str = "Yes" if first_call['is_latent'] else "No"
+                call_count_str = f" (x{len(call_data['calls'])})" if len(call_data['calls']) > 1 else ""
+                output_lines.append(f"| `{func_name}`{call_count_str} | `{target_str}` | {param_str} | {latent_str} |")
             output_lines.append("\n---\n")
 
-        # --- Unconnected Executable Nodes Section ---
+
+        # --- Unconnected Executable Nodes Section (Unchanged) ---
         all_parsed_non_comment_guids = {n.guid for n in self.parser.nodes.values()
                                          if not isinstance(n, EdGraphNode_Comment)}
         untouched_guids = all_parsed_non_comment_guids - processed_globally
@@ -148,11 +148,15 @@ class EnhancedMarkdownFormatter(BaseFormatter):
         if untouched_guids:
              for guid in sorted(list(untouched_guids)):
                 node = self.parser.get_node_by_guid(guid)
+                # Add check for nodes that *can* start execution but weren't reached
                 if node and not node.is_pure():
                     input_exec_pin = node.get_execution_input_pin()
+                    is_potential_start = isinstance(node, (K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey, K2Node_FunctionEntry))
+                    # Node is unconnected if it has no input exec source OR it's a potential start node type without an input exec source
                     if (input_exec_pin and not input_exec_pin.source_pin_for) or \
-                       (not input_exec_pin and isinstance(node, (K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey, K2Node_FunctionEntry))):
+                       (is_potential_start and (not input_exec_pin or not input_exec_pin.source_pin_for)):
                            unconnected_executable_nodes.append(node)
+
 
         if unconnected_executable_nodes:
             output_lines.append("## Unconnected Executable Blocks")
@@ -160,12 +164,17 @@ class EnhancedMarkdownFormatter(BaseFormatter):
             output_lines.append("")
             for node in unconnected_executable_nodes:
                 node_desc_str = self.node_formatter._get_formatter_func(node)(node, set())
+                # Add a simple prefix for unconnected blocks
                 output_lines.append(f"- {node_desc_str}")
+                # Optionally, trace their paths briefly if desired
+                # path_lines = self.path_tracer.trace_path(node, {node.guid}, processed_globally, "  ", True)
+                # output_lines.extend([f"  {line}" for line in path_lines]) # Indent unconnected paths
             output_lines.append("\n---\n")
 
         final_output_string = '\n'.join(output_lines)
         return final_output_string
 
+    # --- extract_variable_operations and extract_function_calls remain unchanged ---
     def extract_variable_operations(self, processed_nodes_guids: Set[str]) -> Dict[str, Dict]:
         """Extracts variable operations from ALL processed nodes."""
         variables = {} # Key: var_name, Value: {'type': str, 'values': list[str]}
@@ -178,7 +187,8 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 value_str = self.data_tracer.trace_pin_value(value_pin, visited_pins=set()) if value_pin else "<?>"
 
                 if var_name not in variables:
-                    variables[var_name] = {'type': node.variable_type or '?', 'values': []}
+                    var_type_sig = node.variable_type or (value_pin.get_type_signature() if value_pin else None)
+                    variables[var_name] = {'type': var_type_sig or '?', 'values': []}
                 variables[var_name]['values'].append(value_str) # Record all values set
 
         return variables
