@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unreal Engine Blueprint Parser</title>
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <!-- Highlight.js Default CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='blueprint-parser.css') }}">
+    <style>
+        /* Add minor style adjustments if needed */
+        .code-input { font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace; font-size: 0.9em; }
+        .markdown-body { margin-top: 1rem; }
+        .stats-summary { margin-top: 1rem; padding: 0.8rem; background-color: #e9ecef; border-radius: 4px; font-size: 0.9em;}
+        .stats-summary pre { margin-bottom: 0; background-color: transparent; padding: 0; border: none;}
+        .nav-tabs .nav-link.active { background-color: #fff; border-bottom-color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="container mt-4 mb-5"> <!-- Added mb-5 for bottom spacing -->
+        <h1>Unreal Engine Blueprint Parser</h1>
+        <p>Paste the raw text copied from the Blueprint editor below and click "Parse Blueprint".</p>
+
+        <!-- Form Section -->
+        <form method="post" class="mb-4">
+            <div class="form-group">
+                <label for="blueprintText">Paste Blueprint Text:</label>
+                <textarea id="blueprintText" name="blueprint_text" rows="15" class="form-control code-input" placeholder="Begin Object Class=... End Object">{{ raw_blueprint_text }}</textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg">Parse Blueprint</button>
+        </form>
+
+        {% if error_message %}
+            <div class="alert alert-danger" role="alert">
+                <strong>Error:</strong> {{ error_message }}
+            </div>
+        {% endif %}
+
+        <!-- Output Section -->
+        {% if blueprint_output or ai_output %}
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <ul class="nav nav-tabs card-header-tabs" id="outputTabs" role="tablist">
+                                <li class="nav-item">
+                                    <a class="nav-link active" id="human-tab" data-toggle="tab" href="#human" role="tab" aria-controls="human" aria-selected="true">Human-Readable</a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" id="ai-tab" data-toggle="tab" href="#ai" role="tab" aria-controls="ai" aria-selected="false">AI-Readable (JSON)</a>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="card-body">
+                            <div class="tab-content" id="outputTabContent">
+                                <!-- Human Readable Tab -->
+                                <div class="tab-pane fade show active" id="human" role="tabpanel" aria-labelledby="human-tab">
+                                     {% if stats_summary %}
+                                          <div class="stats-summary mb-3">
+                                              <!-- Use the blueprint_markdown filter for the stats summary -->
+                                              {{ stats_summary | markdown | safe }}
+                                          </div>
+                                      {% endif %}
+                                    {% if blueprint_output %}
+                                      <div class="markdown-body">
+                                        <!-- Apply markdown filter -->
+                                        {{ blueprint_output | markdown | safe }}
+                                      </div>
+                                    {% elif request.method == 'POST' and not error_message %}
+                                      <p class="text-muted">No human-readable output generated.</p>
+                                    {% endif %}
+                                </div>
+                                <!-- AI Readable Tab -->
+                                <div class="tab-pane fade" id="ai" role="tabpanel" aria-labelledby="ai-tab">
+                                    {% if ai_output %}
+                                      <!-- Add copy button -->
+                                      <button id="copy-btn" class="btn btn-secondary btn-sm mb-2 float-right">Copy JSON</button>
+                                      <div style="clear:both;"></div> <!-- Clear float -->
+                                      <!-- Use 'language-json' class for highlight.js -->
+                                      <pre><code class="language-json">{{ ai_output }}</code></pre>
+                                    {% elif request.method == 'POST' and not error_message %}
+                                       <p class="text-muted">No AI-readable output generated.</p>
+                                    {% else %}
+                                      <p class="text-muted">AI-readable JSON output will appear here after parsing.</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% elif request.method == 'POST' and not error_message %}
+             <p class="text-muted">No output generated. Please check the input text.</p>
+        {% else %}
+             <p class="text-muted">Results will appear here after parsing.</p>
+        {% endif %}
+        <!-- End: Output Section -->
+
+    </div> <!-- End container -->
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <!-- Highlight.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- Optional: Load specific languages if needed, though 'json' is usually built-in -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script> -->
+
+    <!-- Custom Scripts -->
+    <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
+
+    <script>
+        // Initialize highlight.js
+        hljs.highlightAll();
+
+        // Copy AI output to clipboard
+        const copyBtn = document.getElementById('copy-btn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                const aiCodeElement = document.querySelector('#ai pre code.language-json');
+                if (aiCodeElement) {
+                    const textToCopy = aiCodeElement.textContent;
+                    navigator.clipboard.writeText(textToCopy).then(() => {
+                        const originalText = copyBtn.textContent;
+                        copyBtn.textContent = 'Copied!';
+                        copyBtn.disabled = true;
+                        setTimeout(() => {
+                            copyBtn.textContent = originalText;
+                            copyBtn.disabled = false;
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Failed to copy JSON: ', err);
+                        alert('Failed to copy JSON. See console.');
+                    });
+                } else {
+                     console.warn('AI output code block not found.');
+                }
+            });
+        }
+
+        // Optional: Re-highlight when tabs change if dynamic content loading is ever added
+        // $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+        //     const targetPane = $(e.target).attr("href");
+        //     const codeBlocks = document.querySelectorAll(targetPane + ' pre code');
+        //     if (codeBlocks.length > 0) {
+        //         codeBlocks.forEach((block) => {
+        //             hljs.highlightElement(block);
+        //         });
+        //     }
+        // });
+
+    </script>
+</body>
+</html>

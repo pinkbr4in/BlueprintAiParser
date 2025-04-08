@@ -1,0 +1,14 @@
+# Python virtual environment
+venv/
+
+# Compiled Python files
+__pycache__/
+*.pyc
+
+# Qodo editor specific files (optional, but recommended)
+.qodo/
+
+# Other common ignores (optional)
+*.log
+*.swp
+.env

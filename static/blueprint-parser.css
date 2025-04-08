@@ -1,0 +1,504 @@
+/* Base styles */
+body { 
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+    line-height: 1.6; 
+    margin: 0; 
+    padding: 0; 
+    background-color: #f8f9fa; 
+    color: #212529; 
+}
+
+.container { 
+    max-width: 1200px; 
+    margin: 20px auto; 
+    background: #ffffff; 
+    padding: 25px; 
+    border-radius: 8px; 
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+}
+
+h1 { 
+    color: #343a40; 
+    border-bottom: 1px solid #dee2e6; 
+    padding-bottom: 10px; 
+    margin-top: 0; 
+}
+
+h2 { 
+    color: #495057; 
+    margin-top: 1.5em; 
+    margin-bottom: 0.5em; 
+}
+
+p { 
+    margin-bottom: 1em; 
+    color: #6c757d; 
+}
+
+/* Form elements */
+textarea { 
+    width: 98%; 
+    height: 250px; 
+    margin-bottom: 15px; 
+    padding: 12px; 
+    border: 1px solid #ced4da; 
+    border-radius: 4px; 
+    font-family: "Consolas", "Monaco", monospace; 
+    font-size: 0.9em; 
+    resize: vertical; 
+}
+
+textarea:focus { 
+    border-color: #80bdff; 
+    outline: 0; 
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25); 
+}
+
+button[type="submit"] { 
+    background-color: #28a745; 
+    color: white; 
+    padding: 12px 25px; 
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer; 
+    font-size: 1.1em; 
+    transition: background-color 0.2s ease; 
+}
+
+button[type="submit"]:hover { 
+    background-color: #218838; 
+}
+
+/* Tabs */
+.tabs { 
+    margin-top: 25px; 
+    border-bottom: 1px solid #dee2e6; 
+    display: flex; 
+}
+
+.tab-button { 
+    background-color: #e9ecef; 
+    border: 1px solid #dee2e6; 
+    border-bottom: none; 
+    padding: 10px 20px; 
+    cursor: pointer; 
+    border-radius: 4px 4px 0 0; 
+    margin-bottom: -1px; 
+    margin-right: 5px; 
+    font-size: 1em; 
+    color: #495057; 
+}
+
+.tab-button.active { 
+    background-color: #ffffff; 
+    border-bottom: 1px solid #ffffff; 
+    font-weight: bold; 
+    color: #007bff; 
+}
+
+/* Output Area */
+.output-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    margin-bottom: 10px; 
+    padding-bottom: 10px; 
+    border-bottom: 1px solid #eee;
+}
+
+.output-header h2 { 
+    margin: 0; 
+    font-size: 1.3em; 
+}
+
+.result-box { 
+    background-color: #ffffff; 
+    overflow-x: auto; 
+    font-size: 0.95em; 
+    padding: 0;
+}
+
+/* Copy Button */
+.copy-button { 
+    background-color: #007bff; 
+    color: white; 
+    padding: 6px 12px; 
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer; 
+    font-size: 0.9em; 
+}
+
+.copy-button:hover { 
+    background-color: #0056b3; 
+}
+
+/* Enhanced Blueprint styling */
+.result-box h1, .result-box h2, .result-box h3, .result-box h4 { 
+    margin-top: 1.2em; 
+    margin-bottom: 0.6em; 
+    color: #343a40; 
+}
+
+.result-box h1 { 
+    font-size: 2em; 
+    border-bottom: 2px solid #eaecef; 
+    padding-bottom: 0.3em; 
+    margin-top: 24px; 
+    margin-bottom: 16px; 
+    color: #24292e;
+}
+
+.result-box h2 { 
+    font-size: 1.5em; 
+    border-bottom: 1px solid #eaecef; 
+    padding-bottom: 0.3em; 
+    margin-top: 24px; 
+    margin-bottom: 16px; 
+    color: #24292e;
+}
+
+.result-box hr { 
+    border: 0; 
+    border-top: 1px solid #eee; 
+    margin: 1.5em 0; 
+}
+
+.result-box code { 
+    background-color: #e9ecef; 
+    padding: 0.2em 0.4em; 
+    margin: 0; 
+    font-size: 85%; 
+    border-radius: 3px; 
+    font-family: "Consolas", "Monaco", monospace; 
+    color: #c7254e;
+}
+
+.result-box pre { 
+    background-color: #1e2b38; 
+    color: #f8f9fa; 
+    padding: 15px; 
+    border-radius: 4px; 
+    overflow-x: auto; 
+    font-size: 0.9em; 
+    line-height: 1.45; 
+}
+
+.result-box pre code { 
+    background-color: transparent; 
+    padding: 0; 
+    color: inherit; 
+    font-size: inherit; 
+}
+
+/* Enhanced blockquote style for descriptions */
+.result-box blockquote { 
+    border-left: 4px solid #007acc;
+    background-color: #f0f7ff;
+    padding: 12px 15px;
+    color: #333;
+    margin-left: 0;
+    margin-right: 0;
+    margin-bottom: 20px;
+    border-radius: 0 4px 4px 0;
+}
+
+/* Style for TOC */
+.result-box ol { 
+    padding-left: 25px;
+}
+
+.result-box ol li { 
+    margin-bottom: 8px; 
+}
+
+.result-box ol li a { 
+    color: #0366d6; 
+    text-decoration: none; 
+    transition: color 0.2s; 
+}
+
+.result-box ol li a:hover { 
+    color: #0056b3; 
+    text-decoration: underline; 
+}
+
+/* Blueprint code styling */
+.result-box pre.blueprint {
+    background-color: #1e293b; /* Darker blue background */
+    color: #e2e8f0;
+    font-family: 'Consolas', 'Monaco', monospace;
+    line-height: 1.6;
+    padding: 1.5rem;
+    border-radius: 6px;
+    border-left: 4px solid #3b82f6;
+    margin-bottom: 1.5rem;
+}
+
+/* Section headers */
+.result-box pre.blueprint .section-header {
+    color: #93c5fd;
+    font-weight: bold;
+    font-size: 1.1em;
+    border-bottom: 1px solid #475569;
+    padding-bottom: 0.5rem;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+/* Flow and execution paths */
+.result-box pre.blueprint .exec-path {
+    color: #60a5fa;
+    font-weight: bold;
+}
+
+/* Node actions */
+.result-box pre.blueprint .node-action {
+    color: #34d399;
+    font-weight: bold;
+}
+
+/* Variables and pins */
+.result-box pre.blueprint .variable {
+    color: #fbbf24;
+}
+
+/* Function arguments */
+.result-box pre.blueprint .args {
+    color: #c4b5fd;
+    font-style: italic;
+}
+
+/* End markers and conditionals */
+.result-box pre.blueprint .pin-marker {
+    color: #f87171;
+    font-weight: bold;
+}
+
+/* Visual indentation */
+.result-box pre.blueprint .tree-line {
+    color: #64748b;
+    opacity: 0.7;
+}
+
+/* Success/failure indicators */
+.result-box pre.blueprint .success {
+    color: #22c55e;
+}
+
+.result-box pre.blueprint .failure {
+    color: #ef4444;
+}
+
+/* Visual indentation */
+.result-box pre.blueprint .indentation {
+    opacity: 0.5;
+    border-left: 1px solid rgba(255,255,255,0.1); 
+}
+
+/* Mermaid specific styles */
+.mermaid {
+    font-family: 'Consolas', 'Monaco', monospace;
+    text-align: center; /* Center diagram */
+}
+
+.mermaid svg { 
+    max-width: 100%; 
+    height: auto; 
+    display: block; 
+    margin: 1em auto; 
+    background-color: white;
+    border-radius: 4px;
+    padding: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container { 
+        padding: 15px;
+        margin: 10px;
+    }
+    .tabs {
+        flex-wrap: wrap;
+    }
+    .tab-button {
+        margin-bottom: 5px;
+    }
+}
+
+/* Blueprint output styling */
+.markdown-body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    color: #24292e;
+    padding: 15px;
+}
+
+/* Table styling */
+.markdown-body table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+    padding: 8px 12px;
+    border: 1px solid #dfe2e5;
+}
+
+.markdown-body table th {
+    background-color: #f6f8fa;
+    font-weight: 600;
+}
+
+/* Blueprint code blocks within markdown */
+.markdown-body pre {
+    background-color: #f6f8fa;
+    border-radius: 3px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    padding: 16px;
+    overflow: auto;
+    font-size: 85%;
+    line-height: 1.45;
+}
+
+.markdown-body pre code.language-blueprint {
+    /* Specific styles for blueprint blocks if needed */
+    /* Example: Add border or slightly different background */
+    border-left: 3px solid #0366d6;
+    display: block; /* Ensure code block takes full width */
+    white-space: pre; /* Preserve whitespace */
+    padding: 1em;
+}
+
+/* Blueprint specific styling (applied by markdown extensions or JS) */
+.bp-arrow {
+    display: inline-block;
+    color: #0366d6;
+    font-weight: bold;
+    margin-right: 6px;
+}
+
+.bp-line {
+    display: block; /* Changed from inline-block */
+    position: relative;
+    /* padding-left: 8px; Removed for indent classes */
+    margin: 2px 0; /* Reduced margin */
+    white-space: pre; /* Keep whitespace */
+}
+
+/* Tree-like indentation styling */
+.markdown-body pre code .indent-4 { padding-left: 20px !important; }
+.markdown-body pre code .indent-8 { padding-left: 40px !important; }
+.markdown-body pre code .indent-12 { padding-left: 60px !important; }
+.markdown-body pre code .indent-16 { padding-left: 80px !important; }
+/* Add more as needed */
+
+/* Branch lines (Complex - requires specific HTML structure) */
+/* The following are placeholders and might need adjustments based on HTML */
+.bp-branch:before {
+    content: "";
+    position: absolute;
+    left: 10px; /* Adjust based on indent */
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: #0366d6;
+}
+
+/* Section highlighting */
+.section-variable-operations { border-left: 3px solid #28a745; padding-left: 12px; margin-bottom: 1em; }
+.section-function-calls { border-left: 3px solid #fd7e14; padding-left: 12px; margin-bottom: 1em; }
+.section-unconnected { border-left: 3px solid #6c757d; padding-left: 12px; margin-bottom: 1em; }
+
+/* JSON output styling for AI-readable format */
+#ai pre code.json {
+    display: block;
+    background-color: #282c34;
+    color: #abb2bf;
+    padding: 16px;
+    border-radius: 4px;
+    white-space: pre-wrap; /* Wrap long lines */
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.9em;
+}
+
+/* Syntax highlighting for JSON (can be done via JS or server-side) */
+/* These are fallback styles if JS highlighting fails */
+#ai pre code.json .json-string { color: #98c379; }
+#ai pre code.json .json-number { color: #d19a66; }
+#ai pre code.json .json-boolean { color: #56b6c2; }
+#ai pre code.json .json-null { color: #56b6c2; }
+#ai pre code.json .json-key { color: #e06c75; }
+#ai pre code.json .json-error { color: red; font-style: italic; }
+
+/* Tab styling (Using Bootstrap classes, so minimal custom CSS needed) */
+#outputTabs {
+    margin-bottom: 0; /* Remove bottom margin as it's part of card-header */
+    border-bottom: 1px solid #dee2e6; /* Add border if not handled by Bootstrap */
+}
+
+#outputTabs .nav-link {
+    border-radius: 0.25rem 0.25rem 0 0 !important; /* Ensure top corners are rounded */
+}
+
+/* Copy button styling */
+#copy-btn {
+    /* Using Bootstrap btn classes, customize if needed */
+    /* Example: */
+    /* background-color: #0366d6; */
+    /* color: white; */
+    /* transition: background-color 0.2s; */
+}
+
+#copy-btn:hover {
+    /* background-color: #024ea2; */
+}
+
+#copy-btn:disabled {
+    cursor: default;
+    opacity: 0.65;
+}
+
+/* Stats Summary Box */
+.stats-summary {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    padding: 10px 15px;
+    margin-bottom: 15px;
+}
+.stats-summary h6 {
+    margin-bottom: 8px;
+    color: #495057;
+}
+.stats-summary pre code {
+    background-color: transparent;
+    color: #6c757d;
+    padding: 0;
+    font-size: 0.85em;
+    white-space: pre-wrap; /* Allow wrapping */
+}
+
+/* Mobile responsiveness (Leverage Bootstrap grid, add specifics if needed) */
+@media (max-width: 768px) {
+    .markdown-body {
+        padding: 10px;
+        font-size: 0.95em;
+    }
+    
+    .markdown-body table {
+        display: block; /* Make table scrollable horizontally */
+        overflow-x: auto;
+        white-space: nowrap; /* Prevent wrapping within table cells */
+    }
+
+    /* Adjust container padding on smaller screens */
+    .container {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+}
