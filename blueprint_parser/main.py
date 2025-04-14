@@ -51,11 +51,11 @@ def main():
 
     if args.debug:
         print("Debug mode enabled. Verbose output will be printed.")
-        bp_nodes_module.ENABLE_NODE_DEBUG = True
+        bp_nodes_module.ENABLE_NODE_DEBUG = False
         bp_parser_module.ENABLE_PARSER_DEBUG = False
-        bp_node_formatter_module.ENABLE_NODE_FORMATTER_DEBUG = True
-        bp_data_tracer_module.ENABLE_TRACER_DEBUG = True
-        bp_path_tracer_module.ENABLE_PATH_TRACER_DEBUG = True
+        bp_node_formatter_module.ENABLE_NODE_FORMATTER_DEBUG = False
+        bp_data_tracer_module.ENABLE_TRACER_DEBUG = False
+        bp_path_tracer_module.ENABLE_PATH_TRACER_DEBUG = False
     else:
         sys.stdout = debug_stdout # Suppress internal prints if not debug
 

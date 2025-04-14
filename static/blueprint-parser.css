@@ -201,6 +201,7 @@
     margin: 20px 0;
     color: var(--text-primary);
     border: 1px solid var(--border-color);
+    table-layout: fixed; /* Added: Helps control column widths */
   }
   
   .markdown-body table th,
@@ -208,9 +209,12 @@
     border: 1px solid var(--border-color);
     padding: 8px 12px;
     text-align: left;
-    vertical-align: top;
-    word-break: normal;
-    overflow-wrap: anywhere;
+    vertical-align: top; /* Keep content aligned to the top */
+    /* Ensure wrapping */
+    white-space: normal; /* Override potential nowrap */
+    word-wrap: break-word; /* Legacy fallback */
+    overflow-wrap: break-word; /* Standard-compliant */
+    word-break: break-word; /* Force breaks if needed */
   }
   
   .markdown-body table th {
@@ -222,16 +226,21 @@
     background-color: rgba(255, 255, 255, 0.03);
   }
   
-  /* Make function parameters overflow horizontally */
-  .function-table td:nth-child(3) {
-    max-width: 0;
-    overflow-x: auto;
-    white-space: nowrap;
+  /* Fix span rendering in tables */
+  .blueprint-table span { /* Use the class added by process_blueprint_tables */
+    display: inline !important; /* Keep inline display for spans */
   }
   
-  /* Fix span rendering in tables */
-  .blueprint-table span {
-    display: inline !important;
+  /* Ensure code tags within tables also wrap */
+  .markdown-body table td code {
+    white-space: normal; /* Allow wrapping inside code tags */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word; /* Force breaks */
+    display: inline; /* Make sure code doesn't force block display */
+    padding: 2px 0; /* Adjust padding if needed */
+    background-color: transparent; /* Inherit background or set explicitly */
+    color: inherit; /* Inherit color */
   }
   
   .blueprint-table td span {
@@ -242,17 +251,31 @@
   .blueprint-table td:first-child {
     color: var(--bp-var);
     font-weight: bold;
+    /* Optional: Assign width to first column */
+    width: 20%; /* Example width */
   }
   
   /* Type highlighting in tables */
   .blueprint-table td:nth-child(2) {
     color: #89ddff;  /* Cyan for types */
+    /* Optional: Assign width to second column */
+    width: 15%; /* Example width */
   }
   
   /* Function names in table */
   .blueprint-table td:first-child:not(.var) {
     color: var(--bp-node-type);
     font-weight: bold;
+  }
+  
+  /* Optional: Assign width to the problematic columns */
+  /* Applies to both 'Value Set' and 'Parameters Called With' */
+  .markdown-body table td:nth-child(3) {
+      width: 50%; /* Example: Give it more space */
+  }
+  /* Assign width to 'Latent' column if needed */
+  .markdown-body table td:nth-child(4) {
+       width: 15%; /* Example */
   }
   
   /* JSON styling */
@@ -367,6 +390,95 @@
     color: #ff9cac;
     font-style: italic;
   }
+  
+  .bp-delegate-name {
+    color: #89ddff;
+  }
+  
+  .bp-literal-number {
+    color: #f78c6c;
+  }
+  
+  .bp-literal-bool {
+    color: #ff9cac;
+  }
+  
+  .bp-literal-string {
+    color: #c3e88d;
+  }
+  
+  .bp-literal-object {
+    color: #ffcb6b;
+  }
+  
+  .bp-operator {
+    color: #89ddff;
+  }
+  
+  .bp-pin-name {
+    color: #c3e88d;
+  }
+  
+  .bp-struct-kw, .bp-struct-val {
+    color: #80cbc4;
+  }
+  
+  /* Mobile responsiveness */
+  @media (max-width: 768px) {
+    .container {
+      padding: 15px;
+      margin: 10px;
+    }
+    
+    pre.blueprint {
+      font-size: 12px;
+    }
+    
+    /* Ensure tables still scroll on mobile if needed, but allow wrapping first */
+    .markdown-body table {
+       display: block; /* Needed for overflow-x on mobile */
+       overflow-x: auto; /* Allow horizontal scroll *only if needed* */
+       /* Reset fixed layout for mobile to allow columns to adjust */
+       table-layout: auto;
+    }
+     /* Ensure td allows wrapping on mobile */
+     .markdown-body table td {
+        white-space: normal !important;
+     }
+      /* Remove fixed widths on mobile */
+     .markdown-body table td:nth-child(1),
+     .markdown-body table td:nth-child(2),
+     .markdown-body table td:nth-child(3),
+     .markdown-body table td:nth-child(4) {
+         width: auto;
+     }
+  }
+
+/* Fix for event names in Custom Event headers */
+pre.blueprint .bp-event-name,
+h3 .bp-event-name,
+.custom-event-header .bp-event-name {
+  color: #ffcb6b !important;  /* Force yellow color for event names */
+  font-weight: bold;
+  display: inline !important;
+}
+
+/* Make sure code spans display correctly */
+pre.blueprint code span {
+  display: inline !important;
+}
+
+/* Fix for function names in code blocks */
+pre.blueprint .bp-func-name {
+  color: #c792ea !important; /* Purple for functions */
+  font-weight: bold;
+  display: inline !important;
+}
+
+/* Fix for all BP class spans to be displayed inline in code blocks */
+pre.blueprint span[class^="bp-"] {
+  display: inline !important;
+}
 
 /* Ensure consistent coloring for all Blueprint elements */
 .bp-event-name, .bp-func-name, .bp-param-name, .bp-var,
@@ -419,79 +531,5 @@
 
 /* Fix for tables */
 .blueprint-table td span[class^="bp-"] {
-  display: inline !important;
-}
-  .bp-delegate-name {
-    color: #89ddff;
-  }
-  
-  .bp-literal-number {
-    color: #f78c6c;
-  }
-  
-  .bp-literal-bool {
-    color: #ff9cac;
-  }
-  
-  .bp-literal-string {
-    color: #c3e88d;
-  }
-  
-  .bp-literal-object {
-    color: #ffcb6b;
-  }
-  
-  .bp-operator {
-    color: #89ddff;
-  }
-  
-  .bp-pin-name {
-    color: #c3e88d;
-  }
-  
-  .bp-struct-kw, .bp-struct-val {
-    color: #80cbc4;
-  }
-  
-  /* Mobile responsiveness */
-  @media (max-width: 768px) {
-    .container {
-      padding: 15px;
-      margin: 10px;
-    }
-    
-    pre.blueprint {
-      font-size: 12px;
-    }
-    
-    .markdown-body table {
-      display: block;
-      overflow-x: auto;
-    }
-  }
-
-/* Fix for event names in Custom Event headers */
-pre.blueprint .bp-event-name,
-h3 .bp-event-name,
-.custom-event-header .bp-event-name {
-  color: #ffcb6b !important;  /* Force yellow color for event names */
-  font-weight: bold;
-  display: inline !important;
-}
-
-/* Make sure code spans display correctly */
-pre.blueprint code span {
-  display: inline !important;
-}
-
-/* Fix for function names in code blocks */
-pre.blueprint .bp-func-name {
-  color: #c792ea !important; /* Purple for functions */
-  font-weight: bold;
-  display: inline !important;
-}
-
-/* Fix for all BP class spans to be displayed inline in code blocks */
-pre.blueprint span[class^="bp-"] {
   display: inline !important;
 }
