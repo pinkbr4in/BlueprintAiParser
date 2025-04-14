@@ -11,7 +11,10 @@ from ..nodes import (
     Node, EdGraphNode_Comment, K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction,
     K2Node_InputAction, K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch,
     K2Node_InputAxisKeyEvent, K2Node_InputDebugKey, K2Node_FunctionEntry, K2Node_VariableSet,
-    K2Node_CallFunction, K2Node_MacroInstance # Add other specific nodes if needed by formatters
+    K2Node_CallFunction, K2Node_MacroInstance,
+    # --- ADDED missing imports for is_orphan_start check ---
+    K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent
+    # --- END ADDED imports ---
 )
 # Import BaseFormatter from the correct relative path
 from .formatter import BaseFormatter
@@ -58,20 +61,32 @@ class EnhancedMarkdownFormatter(BaseFormatter):
              # Use slightly more specific warning message
              print("Warning (EnhancedMarkdownFormatter): Data tracer not available for cache clear.", file=sys.stderr)
 
-        processed_globally = set()  # Track nodes processed across all paths
+        # --- MODIFIED START: Apply changes from the request ---
+        processed_globally = set() # Track nodes processed across all paths
 
-        # --- Find Execution Start Points ---
+        # --- Find Execution Start Points (using updated logic) ---
         start_nodes = self._get_execution_start_nodes() # Inherited from BaseFormatter
         entry_points_count = len(start_nodes)
-        output_lines.append(f"- **Entry Points:** {entry_points_count}")
+        # Determine if we are using fallback orphan nodes
+        is_orphan_start = not any(isinstance(n, (
+            K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction,
+            K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent,
+            K2Node_InputDebugKey, K2Node_FunctionEntry, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent
+        )) for n in start_nodes)
+
+        # --- Updated Summary Output ---
+        output_lines.append(f"- **Entry Points Found:** {entry_points_count}") # Changed text
+        if is_orphan_start and entry_points_count > 0:
+             # Added warning for orphan/inferred starts
+             output_lines.append("  *(Note: No standard Event/Input found; showing execution starting from unlinked nodes)*")
         output_lines.append("\n---\n")
 
         # --- Execution Flow Section ---
-        # This section correctly uses path_tracer which uses node_formatter, preserving HTML spans
         output_lines.append("## Execution Flow\n")
 
         if not start_nodes:
-            output_lines.append("**Warning:** No execution entry points found.")
+            # Updated warning message for no starting points
+            output_lines.append("**Warning:** No execution entry points or starting nodes found in the pasted snippet.")
         else:
             for i, start_node in enumerate(start_nodes):
                 entry_point_id = f"entry-point-{i+1}"
@@ -79,11 +94,13 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 start_node_header_desc_with_spans = self.node_formatter._get_formatter_func(start_node)(start_node, set())
                 # Clean up common bolding and add line break before args specifically for the header text
                 start_node_header_text = start_node_header_desc_with_spans.replace("**Event**", "Event").replace("**Custom Event**", "Custom Event").replace("**Function Entry**", "Function Entry").replace("**Input Action**", "Input Action").replace("Args:", "<br>Args:") # Add line break before args
-                output_lines.append(f"### {start_node_header_text} <a id=\"{entry_point_id}\"></a>") # Header keeps spans
+                # Indicate if it's an inferred start point
+                start_prefix = "[Inferred Start] " if is_orphan_start else "" # Added prefix logic
+                output_lines.append(f"### {start_prefix}{start_node_header_text} <a id=\"{entry_point_id}\"></a>") # Header includes prefix and keeps spans
                 output_lines.append("```blueprint") # Start code block where spans are needed
                 path_specific_visited = set()
                 if not start_node.is_pure():
-                    processed_globally.add(start_node.guid)
+                    processed_globally.add(start_node.guid) # Track processed non-pure nodes globally
                 # path_tracer generates lines WITH spans
                 path_lines = self.path_tracer.trace_path(
                     start_node=start_node,
@@ -95,6 +112,7 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 output_lines.extend(path_lines)
                 output_lines.append("```") # End code block
                 output_lines.append("\n---\n") # Separator
+        # --- MODIFIED END ---
 
         # --- Summaries Section ---
         # Call extraction functions which STRIP HTML internally now (using imported helper)
@@ -118,9 +136,9 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                     v_stripped = v.strip()
                     # Apply backticks unless it's complex, error, result, etc.
                     if any(c in v_stripped for c in ' ()+-*/%') or v_stripped == '<?>' or '[Error]' in v_stripped or v_stripped.startswith('ResultOf'):
-                         formatted_values.append(v_stripped)
+                        formatted_values.append(v_stripped)
                     else:
-                         formatted_values.append(f"`{v_stripped}`")
+                        formatted_values.append(f"`{v_stripped}`")
                 value_str_for_table = ", ".join(formatted_values) if formatted_values else '?'
                 output_lines.append(f"| `{var_name}` | {var_type} | {value_str_for_table} |")
             output_lines.append("\n---\n")
@@ -151,12 +169,12 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 # Format parameters (smart backticks)
                 formatted_params = []
                 for p, v in sorted(params.items()):
-                     v_stripped = v.strip()
-                     # Apply backticks unless it's complex, error, result, default object etc.
-                     if any(c in v_stripped for c in ' ()+-*/%') or v_stripped == '<?>' or '[Error]' in v_stripped or v_stripped.startswith('ResultOf') or v_stripped.startswith('Default__'):
-                          formatted_params.append(f"{p}={v_stripped}")
-                     else:
-                          formatted_params.append(f"{p}=`{v_stripped}`")
+                    v_stripped = v.strip()
+                    # Apply backticks unless it's complex, error, result, default object etc.
+                    if any(c in v_stripped for c in ' ()+-*/%') or v_stripped == '<?>' or '[Error]' in v_stripped or v_stripped.startswith('ResultOf') or v_stripped.startswith('Default__'):
+                        formatted_params.append(f"{p}={v_stripped}")
+                    else:
+                        formatted_params.append(f"{p}=`{v_stripped}`")
                 param_str = ", ".join(formatted_params) if formatted_params else "-"
 
                 # Format target (smart backticks) - Apply unless complex or 'self'
@@ -170,30 +188,28 @@ class EnhancedMarkdownFormatter(BaseFormatter):
             output_lines.append("\n---\n")
 
         # --- Unconnected Executable Nodes Section ---
+        # This section should now mostly remain empty if orphans are treated as entry points,
+        # but the logic is kept for completeness in case some nodes are truly unreachable.
         all_parsed_non_comment_guids = {n.guid for n in self.parser.nodes.values()
-                                         if not isinstance(n, EdGraphNode_Comment)}
+                                        if not isinstance(n, EdGraphNode_Comment)}
         untouched_guids = all_parsed_non_comment_guids - processed_globally
         unconnected_executable_nodes = []
         if untouched_guids:
-             # Refined logic to find unconnected nodes
+             # Refined logic to find unconnected nodes *not* used as entry points
              for guid in sorted(list(untouched_guids)):
-                node = self.parser.get_node_by_guid(guid)
-                # Include only if it's executable and looks like a start point (or is simply unreached)
-                if node and not node.is_pure():
-                    input_exec_pin = node.get_execution_input_pin()
-                    # Check if it's a typical start node type OR if it simply has no incoming execution
-                    is_potential_start = isinstance(node, (K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey, K2Node_FunctionEntry))
-                    # Condition updated as per target code
-                    if (not input_exec_pin) or (not input_exec_pin.source_pin_for) or is_potential_start:
-                        unconnected_executable_nodes.append(node)
+                 node = self.parser.get_node_by_guid(guid)
+                 # Include only if it's executable and wasn't processed
+                 if node and not node.is_pure():
+                    # No need to check if it *looks* like a start point here,
+                    # as the main loop handles that. We just list anything executable left over.
+                     unconnected_executable_nodes.append(node)
 
         if unconnected_executable_nodes:
             output_lines.append("## Unconnected Executable Blocks")
             output_lines.append("*(Found executable nodes/sequences not reached by main entry points)*")
             output_lines.append("")
             for node in unconnected_executable_nodes:
-                # --- MODIFIED: Get description WITH spans, then STRIP HTML for list output ---
-                # Get description WITH spans using format_node (might return None if formatter fails)
+                # --- Get description WITH spans, then STRIP HTML for list output ---
                 # Use format_node which often returns the string and a boolean (is_pure)
                 format_result = self.node_formatter.format_node(node, "", set())
                 node_desc_with_spans = format_result[0] if isinstance(format_result, tuple) and len(format_result) > 0 else (format_result if isinstance(format_result, str) else None)
@@ -201,7 +217,6 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 # Strip HTML for the list representation
                 node_desc_plain = strip_html_tags(node_desc_with_spans) if node_desc_with_spans else f"[Could not format node {node.guid[:4]}]"
                 output_lines.append(f"- {node_desc_plain}") # Use plain text in the list
-                # --- END MODIFICATION ---
             output_lines.append("\n---\n")
 
         # --- Final Join ---
