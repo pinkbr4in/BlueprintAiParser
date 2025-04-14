@@ -3,6 +3,9 @@
 import re
 from typing import List, Dict, Optional, Any, Tuple, Union
 
+# --- Use relative imports ---
+from .utils import extract_simple_name_from_path # Import needed utility
+
 # --- Debug Flag ---
 ENABLE_NODE_DEBUG = False # Set to True for verbose node creation/fallback info
 
@@ -47,34 +50,33 @@ class Pin:
         return bool(hidden_val)
 
     def is_advanced_view(self) -> bool:
-         adv_val = self.raw_properties.get("bAdvancedView", False)
-         if isinstance(adv_val, str): return adv_val.lower() == 'true'
-         return bool(adv_val)
+        adv_val = self.raw_properties.get("bAdvancedView", False)
+        if isinstance(adv_val, str): return adv_val.lower() == 'true'
+        return bool(adv_val)
 
     def get_clean_category(self) -> str:
-         cat = self.category or "unknown"
-         if self.sub_category_object:
-              # Use helper function from utils
-              from .utils import extract_simple_name_from_path
-              name = extract_simple_name_from_path(self.sub_category_object)
-              return name if name else cat # Fallback to category if path extraction fails
-         elif self.sub_category and self.sub_category != cat:
-              # Provide more specific type if available (e.g., "float" for category "real")
-              return self.sub_category
-         return cat
+        cat = self.category or "unknown"
+        if self.sub_category_object:
+            # Use helper function from utils (already imported)
+            name = extract_simple_name_from_path(self.sub_category_object)
+            return name if name else cat # Fallback to category if path extraction fails
+        elif self.sub_category and self.sub_category != cat:
+            # Provide more specific type if available (e.g., "float" for category "real")
+            return self.sub_category
+        return cat
 
     def get_type_signature(self) -> str:
-         base_type = self.get_clean_category()
-         if self.container_type and self.container_type != "None":
-              if self.container_type == "Map":
-                   # TODO: Need to parse PinValueType for Map keys/values if possible
-                   key_type = "?"
-                   value_type = base_type
-                   return f"Map<{key_type}, {value_type}>"
-              return f"{self.container_type}<{base_type}>"
-         ref_str = "&" if self.is_reference else ""
-         const_str = "const " if self.is_const else ""
-         return f"{const_str}{base_type}{ref_str}"
+        base_type = self.get_clean_category()
+        if self.container_type and self.container_type != "None":
+            if self.container_type == "Map":
+                # TODO: Need to parse PinValueType for Map keys/values if possible
+                key_type = "?"
+                value_type = base_type
+                return f"Map<{key_type}, {value_type}>"
+            return f"{self.container_type}<{base_type}>"
+        ref_str = "&" if self.is_reference else ""
+        const_str = "const " if self.is_const else ""
+        return f"{const_str}{base_type}{ref_str}"
 
     def __repr__(self):
         link_count = len(self.linked_pins)
@@ -158,7 +160,7 @@ class Node:
         # Prioritize requested pin name if it's an output exec pin
         requested_pin = self.get_pin(pin_name=pin_name)
         if requested_pin and requested_pin.is_output() and requested_pin.is_execution():
-             return requested_pin
+            return requested_pin
 
         # Try common primary output names next
         primary_names = ["then", "trigger", "completed", "loopbody", "exit", "success", "is valid", "a", "pressed", "released", "update"]
@@ -187,8 +189,8 @@ class Node:
         # Try common primary input names first
         primary_names = ["execute", "exec", "in", "run", "tryget", "enter", "play", "playfromstart", "cast", "bind", "add", "assign", "set", "spawnactor", "create", "remove", "clear"]
         for name in primary_names:
-             pin = self.get_pin(pin_name=name)
-             if pin and pin.is_execution() and pin.is_input(): return pin
+            pin = self.get_pin(pin_name=name)
+            if pin and pin.is_execution() and pin.is_input(): return pin
 
         # Fallback: find the first input execution pin, sorted alphabetically
         input_exec_pins = sorted(
@@ -203,25 +205,25 @@ class Node:
         for pin in self.pins.values():
             if pin.is_output() and (include_hidden or not (pin.is_hidden() or pin.is_advanced_view())):
                 if category is None or pin.category == category:
-                     if regex is None or (pin.name and regex.match(pin.name)):
-                          pins.append(pin)
+                    if regex is None or (pin.name and regex.match(pin.name)):
+                        pins.append(pin)
         pins.sort(key=lambda p: p.name or "")
         return pins
 
     def get_input_pins(self, category: Optional[str] = None, include_hidden: bool = False, exclude_exec: bool = True) -> List[Pin]:
-         pins = []
-         for pin in self.pins.values():
-              if pin.is_input():
-                    # Skip if hidden/advanced unless include_hidden is True
-                    if not include_hidden and (pin.is_hidden() or pin.is_advanced_view()):
-                         continue
-                    # Skip execution pins if excluded
-                    if exclude_exec and pin.is_execution(): continue
-                    # Check category if specified
-                    if category is None or pin.category == category: pins.append(pin)
-         # Sort primarily by non-advanced, then by name
-         pins.sort(key=lambda p: (1 if p.is_advanced_view() else 0, p.name or ""))
-         return pins
+        pins = []
+        for pin in self.pins.values():
+            if pin.is_input():
+                # Skip if hidden/advanced unless include_hidden is True
+                if not include_hidden and (pin.is_hidden() or pin.is_advanced_view()):
+                    continue
+                # Skip execution pins if excluded
+                if exclude_exec and pin.is_execution(): continue
+                # Check category if specified
+                if category is None or pin.category == category: pins.append(pin)
+        # Sort primarily by non-advanced, then by name
+        pins.sort(key=lambda p: (1 if p.is_advanced_view() else 0, p.name or ""))
+        return pins
 
     def to_dict(self) -> Dict[str, Any]:
         """Serializes the node and its pins to a dictionary."""
@@ -290,18 +292,18 @@ class K2Node_VariableSet(Node):
         # variable_name is set in base class parsing
 
     def get_value_input_pin(self) -> Optional[Pin]:
-         """Gets the primary data input pin (the value to set the variable to)."""
-         if self.variable_name:
-             pin_by_name = self.get_pin(pin_name=self.variable_name)
-             if pin_by_name and pin_by_name.is_input() and not pin_by_name.is_execution(): return pin_by_name
-         # Fallback: Search common names or the first non-self, non-exec input
-         common_input_names = ["Value", "InputPin"]
-         for name in common_input_names:
-              pin = self.get_pin(pin_name=name)
-              if pin and pin.is_input() and not pin.is_execution(): return pin
+        """Gets the primary data input pin (the value to set the variable to)."""
+        if self.variable_name:
+            pin_by_name = self.get_pin(pin_name=self.variable_name)
+            if pin_by_name and pin_by_name.is_input() and not pin_by_name.is_execution(): return pin_by_name
+        # Fallback: Search common names or the first non-self, non-exec input
+        common_input_names = ["Value", "InputPin"]
+        for name in common_input_names:
+            pin = self.get_pin(pin_name=name)
+            if pin and pin.is_input() and not pin.is_execution(): return pin
 
-         sorted_pins = self.get_input_pins(exclude_exec=True)
-         return next((p for p in sorted_pins if p.name not in ['self', 'Target', '__WorldContext', 'WorldContextObject']), None)
+        sorted_pins = self.get_input_pins(exclude_exec=True)
+        return next((p for p in sorted_pins if p.name not in ['self', 'Target', '__WorldContext', 'WorldContextObject']), None)
 
     def get_value_output_pin(self) -> Optional[Pin]:
         """Gets the passthrough output pin."""
@@ -407,10 +409,10 @@ class K2Node_CommutativeAssociativeBinaryOperator(Node):
         super().__init__(guid, "CommutativeAssociativeBinaryOperator")
         self.operation_name: Optional[str] = None
     def get_input_pins(self, include_hidden: bool = False, exclude_exec: bool = True) -> List[Pin]:
-         inputs = super().get_input_pins(include_hidden=include_hidden, exclude_exec=exclude_exec)
-         standard_input_names = {'A', 'B', 'C', 'D', 'E'}
-         inputs.sort(key=lambda p: (0 if p.name in standard_input_names else 1, p.name or ""))
-         return inputs
+        inputs = super().get_input_pins(include_hidden=include_hidden, exclude_exec=exclude_exec)
+        standard_input_names = {'A', 'B', 'C', 'D', 'E'}
+        inputs.sort(key=lambda p: (0 if p.name in standard_input_names else 1, p.name or ""))
+        return inputs
     def get_output_pin(self) -> Optional[Pin]:
         pin = self.get_pin(pin_name="ReturnValue")
         if pin and pin.is_output() and not pin.is_execution(): return pin
@@ -432,19 +434,19 @@ class K2Node_AddDelegate(Node):
     def get_delegate_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Delegate") # Input pin connected TO Custom Event or Create Delegate
 
 class K2Node_RemoveDelegate(Node):
-     def __init__(self, guid: str): super().__init__(guid, "RemoveDelegate")
-     def get_target_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="self")
-     def get_delegate_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Delegate") # Input pin connected TO Custom Event or Create Delegate
+    def __init__(self, guid: str): super().__init__(guid, "RemoveDelegate")
+    def get_target_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="self")
+    def get_delegate_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Delegate") # Input pin connected TO Custom Event or Create Delegate
 
 class K2Node_ClearDelegate(Node):
-     def __init__(self, guid: str): super().__init__(guid, "ClearDelegate")
-     def get_target_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="self")
+    def __init__(self, guid: str): super().__init__(guid, "ClearDelegate")
+    def get_target_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="self")
 
 class K2Node_CreateDelegate(Node):
-     def __init__(self, guid: str): super().__init__(guid, "CreateDelegate")
-     def get_object_pin(self) -> Optional[Pin]: return self.get_pin("Object")
-     def get_function_name_pin(self) -> Optional[Pin]: return self.get_pin("FunctionName") # Name input pin
-     def get_delegate_output_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue") # Output pin
+    def __init__(self, guid: str): super().__init__(guid, "CreateDelegate")
+    def get_object_pin(self) -> Optional[Pin]: return self.get_pin("Object")
+    def get_function_name_pin(self) -> Optional[Pin]: return self.get_pin("FunctionName") # Name input pin
+    def get_delegate_output_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue") # Output pin
 
 class K2Node_EnhancedInputAction(Node):
     def __init__(self, guid: str):
@@ -458,22 +460,22 @@ class K2Node_EnhancedInputAction(Node):
         for name in common_names:
             pin = self.get_pin(pin_name=name)
             if pin and pin.is_execution() and pin.is_output():
-                 outputs.append(pin)
-                 found_pins.add(pin.id)
+                outputs.append(pin)
+                found_pins.add(pin.id)
         for pin in self.pins.values():
-             if pin.id not in found_pins and pin.is_execution() and pin.is_output():
-                 outputs.append(pin)
-                 found_pins.add(pin.id)
+            if pin.id not in found_pins and pin.is_execution() and pin.is_output():
+                outputs.append(pin)
+                found_pins.add(pin.id)
         outputs.sort(key=lambda p: (common_names.index(p.name) if p.name in common_names else 99, p.name or ""))
         return outputs
     def get_execution_output_pin(self, pin_name: str = "Triggered") -> Optional[Pin]:
-         if pin_name == "then": pin_name = "Triggered" # Treat 'then' as 'Triggered'
-         pin = self.get_pin(pin_name=pin_name)
-         if pin and pin.is_execution() and pin.is_output(): return pin
-         triggered_pin = self.get_pin(pin_name="Triggered")
-         if triggered_pin and triggered_pin.is_execution() and triggered_pin.is_output(): return triggered_pin
-         all_outputs = self.get_execution_output_pins()
-         return all_outputs[0] if all_outputs else None
+        if pin_name == "then": pin_name = "Triggered" # Treat 'then' as 'Triggered'
+        pin = self.get_pin(pin_name=pin_name)
+        if pin and pin.is_execution() and pin.is_output(): return pin
+        triggered_pin = self.get_pin(pin_name="Triggered")
+        if triggered_pin and triggered_pin.is_execution() and triggered_pin.is_output(): return triggered_pin
+        all_outputs = self.get_execution_output_pins()
+        return all_outputs[0] if all_outputs else None
     def get_execution_input_pin(self) -> Optional[Pin]: return None # Events don't have input exec
     def get_action_value_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Action Value") or self.get_pin(pin_name="ActionValue")
     def get_elapsed_seconds_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Elapsed Time") or self.get_pin(pin_name="ElapsedSeconds")
@@ -543,7 +545,7 @@ class K2Node_Timeline(Node):
     def get_update_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Update")
     def get_finished_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Finished")
     def get_track_pins(self) -> List[Pin]:
-         return [p for p in self.get_output_pins() if p.name not in ["Update", "Finished", "Direction"]]
+        return [p for p in self.get_output_pins() if p.name not in ["Update", "Finished", "Direction"]]
 
 class K2Node_MakeStruct(Node):
     def __init__(self, guid: str):
@@ -551,10 +553,9 @@ class K2Node_MakeStruct(Node):
         self.struct_type: Optional[str] = None
     def get_output_struct_pin(self) -> Optional[Pin]:
         if self.struct_type:
-             from .utils import extract_simple_name_from_path
-             struct_name_short = extract_simple_name_from_path(self.struct_type) or self.struct_type
-             pin = self.get_pin(pin_name=struct_name_short)
-             if pin and pin.is_output(): return pin
+            struct_name_short = extract_simple_name_from_path(self.struct_type) or self.struct_type
+            pin = self.get_pin(pin_name=struct_name_short)
+            if pin and pin.is_output(): return pin
         return next((p for p in self.get_output_pins() if p.category == "struct"), None)
 
 class K2Node_BreakStruct(Node):
@@ -563,38 +564,37 @@ class K2Node_BreakStruct(Node):
         self.struct_type: Optional[str] = None
     def get_input_struct_pin(self) -> Optional[Pin]:
         if self.struct_type:
-             from .utils import extract_simple_name_from_path
-             struct_name_short = extract_simple_name_from_path(self.struct_type) or self.struct_type
-             pin = self.get_pin(pin_name=struct_name_short)
-             if pin and pin.is_input(): return pin
+            struct_name_short = extract_simple_name_from_path(self.struct_type) or self.struct_type
+            pin = self.get_pin(pin_name=struct_name_short)
+            if pin and pin.is_input(): return pin
         return next((p for p in self.get_input_pins() if p.category == "struct" and not p.is_hidden()), None)
 
 class K2Node_SetFieldsInStruct(Node):
-     def __init__(self, guid: str): super().__init__(guid, "SetFieldsInStruct")
-     def get_input_struct_pin(self) -> Optional[Pin]: return self.get_pin("StructRef") # Often pin name
-     def get_struct_pin(self) -> Optional[Pin]: return self.get_pin("StructRef") # Alias
-     def get_output_struct_pin(self) -> Optional[Pin]: return self.get_pin("Result")
+    def __init__(self, guid: str): super().__init__(guid, "SetFieldsInStruct")
+    def get_input_struct_pin(self) -> Optional[Pin]: return self.get_pin("StructRef") # Often pin name
+    def get_struct_pin(self) -> Optional[Pin]: return self.get_pin("StructRef") # Alias
+    def get_output_struct_pin(self) -> Optional[Pin]: return self.get_pin("Result")
 
 class K2Node_Select(Node):
     def __init__(self, guid: str): super().__init__(guid, "Select")
     def get_index_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Index") or self.get_pin(pin_name="Condition")
     def get_option_pins(self) -> List[Pin]:
-         options = []
-         i = 0
-         while True:
-              pin = self.get_pin(pin_name=f"Option {i}")
-              if pin and pin.is_input(): options.append(pin); i += 1
-              else: break
-         if not options: options = [p for p in self.get_input_pins(exclude_exec=True, include_hidden=True) if p.name not in ["Index", "Condition", "self"]]
-         return options
+        options = []
+        i = 0
+        while True:
+            pin = self.get_pin(pin_name=f"Option {i}")
+            if pin and pin.is_input(): options.append(pin); i += 1
+            else: break
+        if not options: options = [p for p in self.get_input_pins(exclude_exec=True, include_hidden=True) if p.name not in ["Index", "Condition", "self"]]
+        return options
     def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="ReturnValue")
 
 class K2Node_Switch(Node):
-     def __init__(self, guid: str, node_type:str ="Switch"): super().__init__(guid, node_type)
-     def get_selection_pin(self) -> Optional[Pin]: return self.get_pin("Selection")
-     def get_default_pin(self) -> Optional[Pin]: return self.get_pin("Default")
-     def get_case_pins(self) -> List[Pin]:
-          return sorted([p for p in self.get_output_pins(category="exec") if p.name != "Default"], key=lambda p: p.friendly_name or p.name or "")
+    def __init__(self, guid: str, node_type:str ="Switch"): super().__init__(guid, node_type)
+    def get_selection_pin(self) -> Optional[Pin]: return self.get_pin("Selection")
+    def get_default_pin(self) -> Optional[Pin]: return self.get_pin("Default")
+    def get_case_pins(self) -> List[Pin]:
+        return sorted([p for p in self.get_output_pins(category="exec") if p.name != "Default"], key=lambda p: p.friendly_name or p.name or "")
 
 class K2Node_SwitchEnum(K2Node_Switch):
     def __init__(self, guid: str): super().__init__(guid, "SwitchEnum")
@@ -614,7 +614,7 @@ class K2Node_ForEachLoop(Node):
     def get_completed_pin(self) -> Optional[Pin]: return self.get_pin(pin_name="Completed")
 
 class K2Node_CallParentFunction(Node):
-     def __init__(self, guid: str): super().__init__(guid, "CallParentFunction")
+    def __init__(self, guid: str): super().__init__(guid, "CallParentFunction")
 
 class K2Node_FunctionEntry(Node):
     def __init__(self, guid: str): super().__init__(guid, "FunctionEntry")
@@ -623,15 +623,15 @@ class K2Node_FunctionResult(Node):
     def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue") # Usually named this
 
 class K2Node_Tunnel(Node):
-     def __init__(self, guid: str): super().__init__(guid, "Tunnel")
+    def __init__(self, guid: str): super().__init__(guid, "Tunnel")
 class K2Node_Composite(Node):
-     def __init__(self, guid: str): super().__init__(guid, "Composite")
+    def __init__(self, guid: str): super().__init__(guid, "Composite")
 
 class K2Node_LatentAction(Node):
-     def __init__(self, guid: str, node_type:str="LatentAction"):
-          super().__init__(guid, node_type)
-          self.is_latent = True
-     def get_completed_pin(self) -> Optional[Pin]: return self.get_pin("Completed") or self.get_pin("then")
+    def __init__(self, guid: str, node_type:str="LatentAction"):
+        super().__init__(guid, node_type)
+        self.is_latent = True
+    def get_completed_pin(self) -> Optional[Pin]: return self.get_pin("Completed") or self.get_pin("then")
 
 class K2Node_PlayMontage(K2Node_LatentAction):
     def __init__(self, guid: str): super().__init__(guid, "PlayMontage")
@@ -682,48 +682,117 @@ class K2Node_FormatText(Node):
     def get_argument_pins(self) -> List[Pin]: return sorted([p for p in self.get_input_pins() if p.name != "Format"], key=lambda p: p.name or "")
     def get_result_pin(self) -> Optional[Pin]: return self.get_pin("Result")
 
+# --- START MODIFIED NODE SUBCLASSES ---
 class K2Node_SpawnActorFromClass(Node):
-    def __init__(self, guid: str): super().__init__(guid, "SpawnActorFromClass")
+    def __init__(self, guid: str):
+        super().__init__(guid, "SpawnActorFromClass")
+        self.spawn_class_path: Optional[str] = None # Added during parsing
     def get_class_pin(self) -> Optional[Pin]: return self.get_pin("Class")
     def get_spawn_transform_pin(self) -> Optional[Pin]: return self.get_pin("SpawnTransform")
     def get_collision_handling_pin(self) -> Optional[Pin]: return self.get_pin("CollisionHandlingOverride")
     def get_owner_pin(self) -> Optional[Pin]: return self.get_pin("Owner")
     def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue")
+    # --- NEW HELPER ---
+    def get_spawn_class_name(self) -> Optional[str]:
+        """Attempts to get the simple name of the class being spawned."""
+        class_pin = self.get_class_pin()
+        if class_pin and class_pin.default_object:
+            return extract_simple_name_from_path(class_pin.default_object)
+        if self.spawn_class_path:
+            return extract_simple_name_from_path(self.spawn_class_path)
+        return None
 
 class K2Node_AddComponent(Node):
-    def __init__(self, guid: str): super().__init__(guid, "AddComponent")
+    def __init__(self, guid: str):
+        super().__init__(guid, "AddComponent")
+        self.component_class_path: Optional[str] = None # Added during parsing
     def get_target_pin(self) -> Optional[Pin]: return self.get_pin("Target")
-    def get_component_class_pin(self) -> Optional[Pin]: return self.get_pin("ComponentClass")
+    def get_component_class_pin(self) -> Optional[Pin]: return self.get_pin("ComponentClass") # Changed from "Class" to "ComponentClass"
     def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue")
+    # --- NEW HELPER ---
+    def get_component_class_name(self) -> Optional[str]:
+        """Attempts to get the simple name of the component being added."""
+        class_pin = self.get_component_class_pin()
+        if class_pin and class_pin.default_object:
+            return extract_simple_name_from_path(class_pin.default_object)
+        # Fallback using TemplateType or TemplateBlueprint if available in raw_properties
+        template_type = self.raw_properties.get("TemplateType")
+        if template_type:
+            return extract_simple_name_from_path(str(template_type))
+        template_bp = self.raw_properties.get("TemplateBlueprint")
+        if template_bp:
+            return extract_simple_name_from_path(str(template_bp))
+        if self.component_class_path:
+            return extract_simple_name_from_path(self.component_class_path)
+        return None
 
 class K2Node_CreateWidget(Node):
-    def __init__(self, guid: str): super().__init__(guid, "CreateWidget")
+    def __init__(self, guid: str):
+        super().__init__(guid, "CreateWidget")
+        self.widget_class_path: Optional[str] = None # Added during parsing
     def get_owning_player_pin(self) -> Optional[Pin]: return self.get_pin("OwningPlayer")
-    def get_widget_class_pin(self) -> Optional[Pin]: return self.get_pin("WidgetClass")
+    def get_widget_class_pin(self) -> Optional[Pin]: return self.get_pin("Class") # Original uses "Class" pin name
     def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue")
-
-class K2Node_GetClassDefaults(Node):
-    def __init__(self, guid: str): super().__init__(guid, "GetClassDefaults")
-    def get_output_pins(self, category: Optional[str] = None, include_hidden: bool = False) -> List[Pin]:
-         return [p for p in super().get_output_pins(category, include_hidden) if p.name != 'self']
+    # --- NEW HELPER ---
+    def get_widget_class_name(self) -> Optional[str]:
+        """Attempts to get the simple name of the widget being created."""
+        class_pin = self.get_widget_class_pin()
+        if class_pin and class_pin.default_object:
+            return extract_simple_name_from_path(class_pin.default_object)
+        if self.widget_class_path:
+            return extract_simple_name_from_path(self.widget_class_path)
+        return None
 
 class K2Node_GenericCreateObject(Node):
-     def __init__(self, guid: str): super().__init__(guid, "GenericCreateObject")
-     def get_class_pin(self) -> Optional[Pin]: return self.get_pin("Class")
-     def get_outer_pin(self) -> Optional[Pin]: return self.get_pin("Outer")
-     def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue")
+    def __init__(self, guid: str): super().__init__(guid, "GenericCreateObject")
+    def get_class_pin(self) -> Optional[Pin]: return self.get_pin("Class")
+    def get_outer_pin(self) -> Optional[Pin]: return self.get_pin("Outer")
+    def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue")
 
 class K2Node_GetSubsystem(Node):
-     def __init__(self, guid: str, node_type="GetSubsystem"): super().__init__(guid, node_type)
-     def get_class_pin(self) -> Optional[Pin]: return self.get_pin("Class") # Often hidden
-     def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue")
+    def __init__(self, guid: str, node_type="GetSubsystem"):
+        super().__init__(guid, node_type)
+        self.subsystem_class_path: Optional[str] = None # Added during parsing
+    def get_class_pin(self) -> Optional[Pin]: return self.get_pin("Class") # Often hidden
+    def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue")
+    # --- NEW HELPER ---
+    def get_subsystem_class_name(self) -> Optional[str]:
+        """Attempts to get the simple name of the subsystem being retrieved."""
+        if self.subsystem_class_path:
+            return extract_simple_name_from_path(self.subsystem_class_path)
+        # Fallback check from raw CustomClass property if parsing missed it
+        custom_class = self.raw_properties.get("CustomClass")
+        if custom_class:
+            return extract_simple_name_from_path(str(custom_class))
+        # Fallback check from ReturnValue pin type if needed
+        ret_pin = self.get_return_value_pin()
+        if ret_pin and ret_pin.sub_category_object:
+            return extract_simple_name_from_path(ret_pin.sub_category_object)
+        return None
 
 class K2Node_GetEngineSubsystem(K2Node_GetSubsystem):
-      def __init__(self, guid: str): super().__init__(guid, "GetEngineSubsystem")
+    def __init__(self, guid: str): super().__init__(guid, "GetEngineSubsystem")
 class K2Node_GetSubsystemFromPC(K2Node_GetSubsystem):
-      def __init__(self, guid: str): super().__init__(guid, "GetSubsystemFromPC")
-      def get_player_controller_pin(self) -> Optional[Pin]: return self.get_pin("PlayerController")
+    def __init__(self, guid: str): super().__init__(guid, "GetSubsystemFromPC")
+    def get_player_controller_pin(self) -> Optional[Pin]: return self.get_pin("PlayerController")
 
+class K2Node_GetClassDefaults(Node):
+    def __init__(self, guid: str):
+        super().__init__(guid, "GetClassDefaults")
+        self.target_class_path: Optional[str] = None # Added during parsing
+    def get_output_pins(self, category: Optional[str] = None, include_hidden: bool = False) -> List[Pin]:
+        return [p for p in super().get_output_pins(category, include_hidden) if p.name != 'self']
+    # --- NEW HELPER ---
+    def get_target_class_name(self) -> Optional[str]:
+        """Attempts to get the simple name of the target class."""
+        if self.target_class_path:
+            return extract_simple_name_from_path(self.target_class_path)
+        # Fallback: Try finding first output pin's object type
+        first_out = next((p for p in self.get_output_pins() if p.sub_category_object), None)
+        if first_out and first_out.sub_category_object:
+            return extract_simple_name_from_path(first_out.sub_category_object)
+        return None
+# --- END MODIFIED NODE SUBCLASSES ---
 
 class NiagaraNodeReroute(K2Node_Knot):
     def __init__(self, guid: str): super().__init__(guid, "NiagaraReroute")
@@ -854,8 +923,8 @@ def create_node_instance(guid: str, class_path: str) -> Node:
     for pattern, node_cls in NODE_TYPE_MAP.items():
         if class_path.startswith(pattern):
             if len(pattern) > len(longest_match):
-                 longest_match = pattern
-                 matched_class = node_cls
+                longest_match = pattern
+                matched_class = node_cls
 
     node_class = matched_class
     node_type_str = ""

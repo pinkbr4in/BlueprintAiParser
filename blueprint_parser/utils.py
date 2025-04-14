@@ -161,7 +161,7 @@ def parse_value(value_str: str) -> Any:
 
     # Handle Path Names like Class'/Script/...' or Object'/Game/...' or Enum'/Script/...'
     elif re.match(r"^(?:Class|Object|Enum|ScriptStruct|UserDefinedEnum|UserDefinedStruct)'", value_str) and value_str.endswith('\''):
-         return value_str # Keep full path string
+       return value_str # Keep full path string
 
     # Handle Booleans
     elif value_str.lower() == 'true': return True
@@ -193,11 +193,11 @@ def parse_properties_recursive(line: str) -> Dict[str, Any]:
         properties[key] = parse_value(raw_value)
     # Handle lines that might just be flags (like bAdvancedView)
     elif line and '=' not in line and not line.startswith(('/', '#', '"', '(', ')', '<', '>')): # Avoid other syntax
-         # Assume boolean flags if no '=' is present and looks like a boolean name
-         if line.startswith(('b', 'bCan', 'bHas', 'bIs')):
+       # Assume boolean flags if no '=' is present and looks like a boolean name
+       if line.startswith(('b', 'bCan', 'bHas', 'bIs')):
              properties[line.strip()] = True
-         # else:
-         #     print(f"Warning: Line without '=' treated as non-boolean: {line}")
+       # else:
+       #     print(f"Warning: Line without '=' treated as non-boolean: {line}")
 
     return properties
 
@@ -230,9 +230,9 @@ def parse_pin_details(pin_content: str) -> Dict[str, Any]:
                  if isinstance(item, str): processed_links.extend(parse_linked_to(item))
                  elif isinstance(item, (list, tuple)) and len(item) == 2: processed_links.append((str(item[0]).strip('"'), str(item[1])))
                  elif isinstance(item, dict):
-                      node_name = item.get("Node") or item.get("_value_0") # Check both common patterns
-                      pin_id = item.get("Pin") or item.get("_value_1")
-                      if node_name and pin_id: processed_links.append((str(node_name).strip('"'), str(pin_id)))
+                     node_name = item.get("Node") or item.get("_value_0") # Check both common patterns
+                     pin_id = item.get("Pin") or item.get("_value_1")
+                     if node_name and pin_id: processed_links.append((str(node_name).strip('"'), str(pin_id)))
                  else:
                      print(f"Warning: Unhandled item type in LinkedTo list: {type(item)} - {item}")
             details["LinkedTo"] = processed_links
@@ -263,23 +263,23 @@ def parse_pin_details(pin_content: str) -> Dict[str, Any]:
         if isinstance(data, dict):
             for key, value in list(data.items()):
                  if isinstance(value, str):
-                      if value.lower() == 'true': data[key] = True
-                      elif value.lower() == 'false': data[key] = False
+                     if value.lower() == 'true': data[key] = True
+                     elif value.lower() == 'false': data[key] = False
                  elif isinstance(value, (dict, list)):
-                      convert_bools(value)
+                     convert_bools(value)
         elif isinstance(data, list):
             for i, item in enumerate(data):
                  if isinstance(item, str):
-                      if item.lower() == 'true': data[i] = True
-                      elif item.lower() == 'false': data[i] = False
+                     if item.lower() == 'true': data[i] = True
+                     elif item.lower() == 'false': data[i] = False
                  elif isinstance(item, (dict, list)):
-                      convert_bools(item)
+                     convert_bools(item)
     convert_bools(details)
 
     # Ensure PinId is present (fallback)
     if 'PinId' not in details:
-         match_id = re.search(r'PinId=([a-zA-Z0-9-]+(?:_[a-zA-Z0-9-]+)*)', pin_content) # Allow underscores in PinID
-         if match_id: details['PinId'] = match_id.group(1)
+        match_id = re.search(r'PinId=([a-zA-Z0-9-]+(?:_[a-zA-Z0-9-]+)*)', pin_content) # Allow underscores in PinID
+        if match_id: details['PinId'] = match_id.group(1)
 
     return details
 
@@ -302,14 +302,14 @@ def parse_linked_to(linked_to_content: str) -> List[Tuple[str, str]]:
             # --------------------
         # --- Add Debug Print ---
         # elif match_tuple:
-        #      print(f"DEBUG (parse_linked_to): Regex found unexpected tuple length {len(match_tuple)}: {match_tuple} from content: '{linked_to_content[:50]}...'")
+        #     print(f"DEBUG (parse_linked_to): Regex found unexpected tuple length {len(match_tuple)}: {match_tuple} from content: '{linked_to_content[:50]}...'")
         # --------------------
 
     # --- Add Debug Print ---
     # if not links and linked_to_content.strip():
-    #      print(f"DEBUG (parse_linked_to): No links extracted via regex from non-empty content: '{linked_to_content}'")
+    #     print(f"DEBUG (parse_linked_to): No links extracted via regex from non-empty content: '{linked_to_content}'")
     # elif links:
-    #      print(f"DEBUG (parse_linked_to): Extracted links: {links} from content: '{linked_to_content}'")
+    #     print(f"DEBUG (parse_linked_to): Extracted links: {links} from content: '{linked_to_content}'")
     # --------------------
     return links
 
@@ -317,13 +317,13 @@ def parse_linked_to(linked_to_content: str) -> List[Tuple[str, str]]:
 def parse_variable_reference(var_ref_val: Any) -> Optional[str]:
      """ Parses VariableReference value (string or dict) to get MemberName. """
      if isinstance(var_ref_val, dict):
-          member_name = var_ref_val.get("MemberName")
-          if not member_name and "MemberReference" in var_ref_val and isinstance(var_ref_val["MemberReference"], dict):
-               member_name = var_ref_val["MemberReference"].get("MemberName")
-          return str(member_name).strip('"') if member_name else None
+         member_name = var_ref_val.get("MemberName")
+         if not member_name and "MemberReference" in var_ref_val and isinstance(var_ref_val["MemberReference"], dict):
+              member_name = var_ref_val["MemberReference"].get("MemberName")
+         return str(member_name).strip('"') if member_name else None
      elif isinstance(var_ref_val, str):
-          match = VAR_REF_REGEX.search(var_ref_val)
-          if match: return match.group(1).strip('"')
+         match = VAR_REF_REGEX.search(var_ref_val)
+         if match: return match.group(1).strip('"')
      return None
 
 def extract_member_name(func_ref_val: Any) -> Optional[str]:
@@ -340,14 +340,16 @@ def extract_member_name(func_ref_val: Any) -> Optional[str]:
         if match: name = match.group(1)
     return str(name).strip('"') if name else None
 
+# --- START OF MODIFIED FUNCTION ---
 def extract_simple_name_from_path(path: Optional[Union[str, Any]]) -> Optional[str]:
      """Extracts the final component (class/struct/enum name) from a UE path string."""
+     # --- (Keep Existing Implementation - Assumed Sufficient for now) ---
      if not path: return None
      path_str = str(path) # Ensure it's a string
 
      # Handle potential nested structures like {'_value_0': '/Script/...'}
      if isinstance(path, dict):
-          path_str = str(path.get('_value_0', path_str)) # Use _value_0 if present, else original dict str
+         path_str = str(path.get('_value_0', path_str)) # Use _value_0 if present, else original dict str
      elif isinstance(path, list) and len(path) > 0:
          path_str = str(path[0]) # Take first element if it's a list
 
@@ -355,22 +357,65 @@ def extract_simple_name_from_path(path: Optional[Union[str, Any]]) -> Optional[s
      match = CLEAN_NAME_REGEX.search(path_str)
      name = None
      if match:
-          name = match.group(1).strip("'\"")
+         name = match.group(1).strip("'\"")
      elif '/' not in path_str and ':' not in path_str and '.' not in path_str:
-           # Handle direct names like "MyActor" or "MyEnum"
-           name = path_str.strip("'\"")
+          # Handle direct names like "MyActor" or "MyEnum"
+          name = path_str.strip("'\"")
 
      if name:
-          # Remove _C suffix for class names
-          if name.endswith('_C'): name = name[:-2]
-          # Handle cases like 'EdGraphPin_0' from older formats if needed
-          if re.match(r'^[a-zA-Z_]+_[0-9]+$', name): name = name.rsplit('_',1)[0]
-          # Handle Enum::Value case
-          if '::' in name: name = name.split('::')[0]
-          return name
+         # Remove _C suffix for class names
+         if name.endswith('_C'): name = name[:-2]
+         # Handle cases like 'EdGraphPin_0' from older formats if needed
+         # if re.match(r'^[a-zA-Z_]+_[0-9]+$', name): name = name.rsplit('_',1)[0] # Might be too aggressive
+         # Handle Enum::Value case
+         if '::' in name: name = name.split('::')[0]
+         return name
 
      # Fallback: If no clean name found via regex or direct check, return None
      return None
+# --- END OF MODIFIED FUNCTION ---
+
+# --- START OF NEW FUNCTION ---
+def parse_struct_default_value(value_str: str) -> Optional[str]:
+    """
+    Parses simple struct default value strings like (TagName="...") or (X=...,Y=...)
+    Returns the core information string or None if parsing fails.
+    """
+    value_str = value_str.strip()
+    if not (value_str.startswith('(') and value_str.endswith(')')):
+       return None # Not the expected format
+
+    content = value_str[1:-1].strip()
+    if not content: return "()" # Empty struct default
+
+    # Handle GameplayTag specifically
+    tag_match = re.match(r'TagName="([^"]*)"', content, re.IGNORECASE)
+    if tag_match:
+       return f'{tag_match.group(1)}' # Return just the tag name
+
+    # Handle simple Vector/Rotator like structures (X=...,Y=...,Z=...)
+    # Extract key-value pairs, format them simply
+    parts = []
+    # Basic split, assumes simple structure without nested parens in default value itself
+    raw_parts = re.findall(r'([a-zA-Z]+)=([^,)]+)', content)
+    for key, val_raw in raw_parts:
+        # Attempt to format float values nicely
+        try:
+            num_val = float(val_raw)
+            if num_val.is_integer():
+                formatted_val = str(int(num_val))
+            else:
+                formatted_val = f"{num_val:.2f}".rstrip('0').rstrip('.') # Keep up to 2 decimal places
+        except ValueError:
+            formatted_val = val_raw # Keep as string if not a number
+        parts.append(f"{key}={formatted_val}")
+
+    if parts:
+       return f"({', '.join(parts)})"
+
+    # Fallback if no specific pattern matched inside parens
+    return f"({content})"
+# --- END OF NEW FUNCTION ---
 
 
 def extract_specific_type(text_block: str, regex: re.Pattern, capture_group: int = 1, key_name: Optional[str] = None) -> Optional[str]:
@@ -397,16 +442,16 @@ def extract_macro_path(macro_ref_val: Any) -> Optional[str]:
      """Extracts the macro graph path."""
      path = None
      if isinstance(macro_ref_val, dict):
-          # Check common keys used for macro references
-          path = macro_ref_val.get("MacroGraph") or \
-                 macro_ref_val.get("Graph") or \
-                 macro_ref_val.get("AssetPtr") or \
-                 macro_ref_val.get("ObjectPath") or \
-                 macro_ref_val.get("_value_0") # Fallback for simple paren value
+         # Check common keys used for macro references
+         path = macro_ref_val.get("MacroGraph") or \
+                macro_ref_val.get("Graph") or \
+                macro_ref_val.get("AssetPtr") or \
+                macro_ref_val.get("ObjectPath") or \
+                macro_ref_val.get("_value_0") # Fallback for simple paren value
      elif isinstance(macro_ref_val, str):
-          match = MACRO_PATH_REGEX.search(macro_ref_val)
-          if match: path = match.group(1)
-          else: path = macro_ref_val # Fallback if just a raw path string
+         match = MACRO_PATH_REGEX.search(macro_ref_val)
+         if match: path = match.group(1)
+         else: path = macro_ref_val # Fallback if just a raw path string
      return str(path).strip("'\"") if path else None
 
 def format_statistics(stats: Dict[str, Any]) -> str:
