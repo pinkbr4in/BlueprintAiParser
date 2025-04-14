@@ -5,6 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from flask import Flask
 from config import config # Assuming config.py is in the same directory or install path
+from flask_wtf.csrf import CSRFProtect # <-- Import CSRFProtect
 
 # --- Optional: Add sys.path modification if blueprint_parser isn't installed as a package ---
 # Ensure this runs only once if needed, e.g., by checking if path already exists
@@ -14,6 +15,11 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
     print(f"INFO: Added {project_root} to sys.path for local imports.")
 # -------------------------------------------------------------------------------------------
+
+# --- Create a CSRF object that can be imported elsewhere ---
+# Instantiate OUTSIDE the factory
+csrf = CSRFProtect()
+# ---------------------------------------------------------
 
 def create_app(config_name=None): # Accept config_name, default handled below
     """Application Factory Function"""
@@ -32,6 +38,10 @@ def create_app(config_name=None): # Accept config_name, default handled below
     try:
         app.config.from_object(config[config_name])
         print(f"INFO: Loading configuration '{config_name}' from config.py")
+        # Ensure SECRET_KEY is set for CSRF
+        if not app.config.get('SECRET_KEY'):
+             print("CRITICAL ERROR: SECRET_KEY is not set in the configuration. CSRF protection requires it.", file=sys.stderr)
+             sys.exit(1)
     except KeyError:
         print(f"CRITICAL ERROR: Configuration '{config_name}' not found in config.py!", file=sys.stderr)
         sys.exit(1) # Exit if config is fundamentally broken
@@ -119,11 +129,17 @@ def create_app(config_name=None): # Accept config_name, default handled below
 
     # --- Initialize Extensions (like CSRF) ---
     try:
-        from flask_wtf.csrf import CSRFProtect
-        csrf = CSRFProtect(app)
+        # Use the global csrf object and initialize it with the app
+        csrf.init_app(app) # <-- Use init_app here
         app.logger.info("CSRF protection initialized.")
     except ImportError:
-        app.logger.warning("Flask-WTF not installed. CSRF protection disabled.")
+        # This except block might not be strictly needed if you ensure Flask-WTF is installed,
+        # but it's good practice for robustness if CSRFProtect was imported conditionally.
+        # If CSRFProtect itself failed to import earlier, the app would likely fail before this.
+        app.logger.warning("Flask-WTF not installed or CSRFProtect object unavailable. CSRF protection may be disabled.")
+    except Exception as e:
+        app.logger.critical(f"Failed to initialize CSRF protection: {e}", exc_info=True)
+        sys.exit(1) # Exit if CSRF init fails, as it's security-critical
     # --- End Extensions ---
 
 
