@@ -156,11 +156,11 @@ class NodeFormatter:
 
     # --- NEW: Format Literal Node (Often skipped visually) ---
     def _format_literal_node(self, node: K2Node_Literal, visited_data_pins: Set[str]) -> Optional[str]:
-         # Literal nodes usually don't appear directly in the execution flow trace,
-         # their value is resolved by the DataTracer when tracing pins connected to them.
-         # Return None so the PathTracer skips showing it as a separate execution step.
-         if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG (NodeFormatter): Skipping visual format for Literal Node {node.guid[:4]}", file=sys.stderr)
-         return None
+        # Literal nodes usually don't appear directly in the execution flow trace,
+        # their value is resolved by the DataTracer when tracing pins connected to them.
+        # Return None so the PathTracer skips showing it as a separate execution step.
+        if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG (NodeFormatter): Skipping visual format for Literal Node {node.guid[:4]}", file=sys.stderr)
+        return None
 
     # --- MODIFIED: Add Bound Event Handling ---
     def _format_event(self, node: Node, visited_data_pins: Set[str]) -> str:
@@ -247,8 +247,16 @@ class NodeFormatter:
         var_name_span = span("bp-var", f"`{var_name}`")
         return f"{keyword} {var_name_span}{var_type_span} = {value_str_raw}{target_fmt}"
 
+    # --- START OF MODIFIED _format_call_function ---
     def _format_call_function(self, node: K2Node_CallFunction, visited_data_pins: Set[str]) -> str:
-        func_name = node.function_name or 'UnknownFunction'
+        raw_func_name = node.function_name or 'UnknownFunction'
+
+        # --- ADD K2NODE_ PREFIX REMOVAL ---
+        func_name = raw_func_name
+        if func_name.startswith("K2Node_"):
+            func_name = func_name[len("K2Node_"):]
+        # --- END PREFIX REMOVAL ---
+
         target_pin = node.get_target_pin()
         target_str_raw = self.data_tracer._trace_target_pin(target_pin, visited_data_pins.copy())
         args_str = self._format_arguments(node, visited_data_pins.copy())
@@ -258,19 +266,49 @@ class NodeFormatter:
         return_type_sig = return_pin.get_type_signature() if return_pin else None
         return_type = span("bp-data-type", f" -> `{return_type_sig}`") if return_type_sig else ""
 
-        # Always use bp-func-name class for function names
+        # Use the cleaned func_name
         func_name_span = span("bp-func-name", f"`{func_name}`")
 
-        # Determine if this is a static call
-        is_static_call = target_str_raw.startswith(span("bp-var", "`")) and target_str_raw.endswith("</span>") and target_str_raw != span("bp-var", "`self`") and '.' not in target_str_raw
+        # Determine if this is a static call (using cleaned target logic from previous steps)
+        is_static_call = False
+        if target_str_raw:
+            # Regex to match various forms of class/default object references, excluding 'self'
+            match_class_default = re.match(r'^(?:<span class="bp-var">)?`?([a-zA-Z0-9_]+)`?(?:</span>)?(?:|::(?:<span class="bp-keyword">)?Default(?:</span>)?)?$', target_str_raw)
+            match_class_only = re.match(r'^<span class="bp-class-name">`([a-zA-Z0-9_]+)`</span>$', target_str_raw)
+            match_object_path = re.match(r'^<span class="bp-literal-object">`([a-zA-Z0-9_/.:]+)`</span>$', target_str_raw)
+
+            # More robust check for static calls based on target format
+            if (match_class_default and match_class_default.group(1) != 'self') or \
+               (match_class_only and match_class_only.group(1) != 'self') or \
+               (match_object_path and match_object_path.group(1) != 'self' and 'Default__' in match_object_path.group(1)) or \
+               target_str_raw.startswith(span("bp-var", "`Default__")): # Direct check for Default__ prefix
+                 is_static_call = True
+
 
         if is_static_call:
             keyword = span("bp-keyword", "**Static Call**")
-            return f"{keyword} {target_str_raw}.{func_name_span}{args_str}{return_type}{latent_info}{dev_only}"
+            # Extract class name for static call formatting
+            class_name_span_str = ""
+            # Decode HTML entities potentially introduced by span() before regex matching
+            target_cleaned = target_str_raw.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+            # Regex to extract class name from various static target formats
+            class_name_match = re.match(r'^(?:<span class="(?:bp-var|bp-literal-object)">)?`?(?:Default__)?([a-zA-Z0-9_]+)`?(?:</span>)?(?:|::(?:<span class="bp-keyword">)?Default(?:</span>)?)?$', target_cleaned)
+            class_only_match = re.match(r'^<span class="bp-class-name">`([a-zA-Z0-9_]+)`</span>$', target_cleaned)
+
+            class_name = None
+            if class_name_match: class_name = class_name_match.group(1)
+            elif class_only_match: class_name = class_only_match.group(1)
+
+            # Optionally add ClassName.FunctionName if the class isn't a common library
+            if class_name and class_name not in ['KismetSystemLibrary', 'KismetMathLibrary', 'GameplayStatics', 'KismetStringLibrary', 'KismetArrayLibrary']:
+                 class_name_span_str = f"{span('bp-class-name', f'`{class_name}`')}." # Note the added dot
+
+            return f"{keyword} {class_name_span_str}{func_name_span}{args_str}{return_type}{latent_info}{dev_only}"
         else:
             keyword = span("bp-keyword", "**Call**")
             target_fmt = self._format_target(target_str_raw)
             return f"{keyword} {func_name_span}{args_str}{target_fmt}{return_type}{latent_info}{dev_only}"
+    # --- END OF MODIFIED _format_call_function ---
 
 
     def _format_call_parent_function(self, node: K2Node_CallParentFunction, visited_data_pins: Set[str]) -> str:
@@ -338,59 +376,68 @@ class NodeFormatter:
     def _format_flipflop(self, node: K2Node_FlipFlop, visited_data_pins: Set[str]) -> str:
         return span("bp-keyword", "**FlipFlop**")
 
-    # --- START OF MODIFIED _format_dynamic_cast ---
+    # --- START OF MODIFIED _format_dynamic_cast with DEBUG ---
     def _format_dynamic_cast(self, node: K2Node_DynamicCast, visited_data_pins: Set[str]) -> str:
         object_pin = node.get_object_pin()
         object_str_raw = self.data_tracer.trace_pin_value(object_pin, visited_pins=visited_data_pins.copy()) if object_pin else span("bp-error", "<?>")
 
-        # --- MODIFICATION START: Prioritize 'As...' pin type ---
+        # --- DEBUG START ---
+        if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG [Cast Format {node.name}]: Starting type resolution.", file=sys.stderr)
+        # --- END DEBUG ---
+
         cast_type_name = "UnknownType"
         as_pin = node.get_as_pin()
         as_pin_type_path = None
-        target_type_path = node.raw_properties.get("TargetType") # Get the raw property value
+        # Use the raw property directly, fallback to parsed node.target_type if needed
+        target_type_path_prop = node.raw_properties.get("TargetType")
+
+        # --- DEBUG START ---
+        if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG [Cast Format {node.name}]: AsPin found: {as_pin is not None}", file=sys.stderr)
+        if as_pin:
+            if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG [Cast Format {node.name}]: AsPin SubCategoryObject: {as_pin.sub_category_object}", file=sys.stderr)
+        if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG [Cast Format {node.name}]: TargetType Property: {target_type_path_prop}", file=sys.stderr)
+        # --- END DEBUG ---
 
         if as_pin and as_pin.sub_category_object:
-            as_pin_type_path = as_pin.sub_category_object
-            # Check if the 'As...' pin type is more specific than the TargetType property
-            # (e.g., AsPin is '/Script/Engine.PlayerController' while TargetType is '/Script/CoreUObject.Class')
-            # Use extract_simple_name_from_path to get the actual class name
-            resolved_name = extract_simple_name_from_path(as_pin_type_path)
-            if resolved_name and resolved_name.lower() != 'object': # Check against simple 'Object' too
-                # Let's also check if the target_type is something very generic like 'Class' or 'Object'
-                target_type_simple = extract_simple_name_from_path(str(target_type_path)) if target_type_path else None
-                if not target_type_simple or target_type_simple.lower() in ('class', 'object'):
-                     cast_type_name = resolved_name
-                else:
-                    # If TargetType is also specific, we might need more sophisticated logic,
-                    # but for now, let's prefer the 'As...' pin if it's not just 'Object'.
+            as_pin_type_path = str(as_pin.sub_category_object).strip("'\"") # Ensure string and clean quotes
+            # Check if the 'As...' pin type is specific enough
+            if as_pin_type_path and as_pin_type_path.lower() != '/script/coreuobject.class':
+                resolved_name = extract_simple_name_from_path(as_pin_type_path)
+                if resolved_name:
                     cast_type_name = resolved_name
+                    # --- DEBUG START ---
+                    if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG [Cast Format {node.name}]: Type set from AsPin: {cast_type_name}", file=sys.stderr)
+                    # --- END DEBUG ---
 
+        # If 'As...' pin didn't give a specific type, try the TargetType property
+        if cast_type_name == "UnknownType" and target_type_path_prop:
+            target_type_path_str = str(target_type_path_prop).strip("'\"")
+            resolved_name = extract_simple_name_from_path(target_type_path_str)
+            if resolved_name and resolved_name.lower() != 'class': # Avoid using generic 'Class'
+                cast_type_name = resolved_name
+                # --- DEBUG START ---
+                if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG [Cast Format {node.name}]: Type set from TargetType Prop: {cast_type_name}", file=sys.stderr)
+                # --- END DEBUG ---
 
-        # If 'As...' pin didn't give a specific type or wasn't preferred, try the TargetType property from the node
-        if cast_type_name == "UnknownType" and target_type_path:
-             resolved_name = extract_simple_name_from_path(str(target_type_path))
-             # Avoid using generic 'Class' or 'Object' if possible
-             if resolved_name and resolved_name.lower() not in ('class', 'object'):
-                  cast_type_name = resolved_name
-
-        # Final fallback if both failed or yielded generic types
-        if cast_type_name == "UnknownType" or cast_type_name.lower() in ('class', 'object'):
-             # Try the parsed target_type attribute as a last resort, if it exists and isn't generic
-             parsed_target_type_name = extract_simple_name_from_path(node.target_type)
-             if parsed_target_type_name and parsed_target_type_name.lower() not in ('class', 'object'):
-                 cast_type_name = parsed_target_type_name
-             elif cast_type_name == "UnknownType": # Only use UnknownType if everything else failed
-                  cast_type_name = "UnknownType"
-
+        # Final fallback if both fail (using the potentially generic node.target_type parsed earlier)
+        if cast_type_name == "UnknownType":
+            if node.target_type: # Use the value finalized onto the node object
+               cast_type_name = node.target_type
+               # --- DEBUG START ---
+               if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG [Cast Format {node.name}]: Type set from node.target_type fallback: {cast_type_name}", file=sys.stderr)
+               # --- END DEBUG ---
+            else:
+                # --- DEBUG START ---
+                if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG [Cast Format {node.name}]: All checks failed, using 'UnknownType'.", file=sys.stderr)
+                # --- END DEBUG ---
+                cast_type_name = "UnknownType" # Ensure it remains UnknownType
 
         cast_type_span = span("bp-data-type", f"`{cast_type_name}`")
-        # Add the 'as PinName' part only if the As... pin exists
         as_pin_str = f" (as {span('bp-param-name', f'`{as_pin.name}`')})" if as_pin and as_pin.name else ""
-        # --- MODIFICATION END ---
 
         keyword = span("bp-keyword", "**Cast**")
         return f"{keyword} ({object_str_raw}) To {cast_type_span}{as_pin_str}"
-    # --- END OF MODIFIED _format_dynamic_cast ---
+    # --- END OF MODIFIED _format_dynamic_cast with DEBUG ---
 
 
     def _format_delegate_binding(self, node: Node, visited_data_pins: Set[str], action: str) -> str:

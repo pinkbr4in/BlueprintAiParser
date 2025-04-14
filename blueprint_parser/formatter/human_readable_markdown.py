@@ -68,11 +68,14 @@ class EnhancedMarkdownFormatter(BaseFormatter):
         start_nodes = self._get_execution_start_nodes() # Inherited from BaseFormatter
         entry_points_count = len(start_nodes)
         # Determine if we are using fallback orphan nodes
-        is_orphan_start = not any(isinstance(n, (
-            K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction,
-            K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent,
-            K2Node_InputDebugKey, K2Node_FunctionEntry, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent
-        )) for n in start_nodes)
+        # Default to False, set to True only if start_nodes exist and none are standard types
+        is_orphan_start = False
+        if start_nodes: # Check only if start_nodes is not empty
+            is_orphan_start = not any(isinstance(n, (
+                K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction,
+                K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent,
+                K2Node_InputDebugKey, K2Node_FunctionEntry, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent
+            )) for n in start_nodes)
 
         # --- Updated Summary Output ---
         output_lines.append(f"- **Entry Points Found:** {entry_points_count}") # Changed text
@@ -191,32 +194,38 @@ class EnhancedMarkdownFormatter(BaseFormatter):
         # This section should now mostly remain empty if orphans are treated as entry points,
         # but the logic is kept for completeness in case some nodes are truly unreachable.
         all_parsed_non_comment_guids = {n.guid for n in self.parser.nodes.values()
-                                        if not isinstance(n, EdGraphNode_Comment)}
+                                         if not isinstance(n, EdGraphNode_Comment)}
         untouched_guids = all_parsed_non_comment_guids - processed_globally
         unconnected_executable_nodes = []
         if untouched_guids:
              # Refined logic to find unconnected nodes *not* used as entry points
              for guid in sorted(list(untouched_guids)):
-                 node = self.parser.get_node_by_guid(guid)
-                 # Include only if it's executable and wasn't processed
-                 if node and not node.is_pure():
+                node = self.parser.get_node_by_guid(guid)
+                # Include only if it's executable and wasn't processed
+                if node and not node.is_pure():
                     # No need to check if it *looks* like a start point here,
                     # as the main loop handles that. We just list anything executable left over.
-                     unconnected_executable_nodes.append(node)
+                    unconnected_executable_nodes.append(node)
 
         if unconnected_executable_nodes:
             output_lines.append("## Unconnected Executable Blocks")
             output_lines.append("*(Found executable nodes/sequences not reached by main entry points)*")
             output_lines.append("")
             for node in unconnected_executable_nodes:
-                # --- Get description WITH spans, then STRIP HTML for list output ---
-                # Use format_node which often returns the string and a boolean (is_pure)
+                # --- START OF MODIFICATION: Apply strip_html_tags ---
+                # Get description WITH spans using format_node (might return None or Tuple)
                 format_result = self.node_formatter.format_node(node, "", set())
-                node_desc_with_spans = format_result[0] if isinstance(format_result, tuple) and len(format_result) > 0 else (format_result if isinstance(format_result, str) else None)
+                # Handle potential return types (Tuple or just string)
+                node_desc_with_spans = None
+                if isinstance(format_result, tuple) and len(format_result) > 0 and isinstance(format_result[0], str):
+                    node_desc_with_spans = format_result[0]
+                elif isinstance(format_result, str):
+                    node_desc_with_spans = format_result
 
-                # Strip HTML for the list representation
-                node_desc_plain = strip_html_tags(node_desc_with_spans) if node_desc_with_spans else f"[Could not format node {node.guid[:4]}]"
+                # Strip HTML for the list representation using the imported helper
+                node_desc_plain = strip_html_tags(node_desc_with_spans) if node_desc_with_spans else f"Node {node.name or node.guid[:4]}" # Fallback name
                 output_lines.append(f"- {node_desc_plain}") # Use plain text in the list
+                # --- END OF MODIFICATION ---
             output_lines.append("\n---\n")
 
         # --- Final Join ---
