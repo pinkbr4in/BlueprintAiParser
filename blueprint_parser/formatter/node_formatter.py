@@ -4,6 +4,7 @@ import re
 from typing import Dict, Optional, Set, Tuple, List
 import sys
 # --- Use relative import ---
+# --- MODIFIED: Add Literal, Bound Events, Composite ---
 from ..nodes import (Node, Pin, K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction,
                      K2Node_VariableSet, K2Node_VariableGet, K2Node_IfThenElse, K2Node_ExecutionSequence, K2Node_FlipFlop,
                      K2Node_DynamicCast, K2Node_AddDelegate, K2Node_AssignDelegate, K2Node_RemoveDelegate, K2Node_ClearDelegate,
@@ -16,13 +17,18 @@ from ..nodes import (Node, Pin, K2Node_Event, K2Node_CustomEvent, K2Node_Enhance
                      K2Node_SpawnActorFromClass, K2Node_AddComponent, K2Node_CreateWidget, K2Node_GenericCreateObject,
                      K2Node_CallArrayFunction, K2Node_MakeArray, K2Node_MakeMap, K2Node_GetClassDefaults,
                      K2Node_FormatText, K2Node_GetSubsystem, K2Node_PlayMontage, K2Node_CreateDelegate, K2Node_FunctionResult,
-                     K2Node_FunctionEntry)
+                     K2Node_FunctionEntry,
+                     # --- ADDED IMPORTS ---
+                     K2Node_Literal, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent,
+                     K2Node_Composite)
 # --- Use relative import ---
 from .data_tracer import DataTracer # Import DataTracer class
 # --- Use relative import ---
 from ..utils import extract_simple_name_from_path, extract_member_name
 
 ENABLE_NODE_FORMATTER_DEBUG = False
+# Use global debug flag potentially defined elsewhere (e.g., in parser)
+ENABLE_PARSER_DEBUG = False # Assume False unless set globally
 
 # --- Helper to wrap text in span ---
 def span(css_class: str, text: str) -> str:
@@ -69,18 +75,18 @@ class NodeFormatter:
                  continue
              try:
                  if pin.linked_pins or not self.data_tracer._is_trivial_default(pin):
-                      # !!! Pass the Pin object, not just the ID !!!
-                      pin_val_raw = self.data_tracer.trace_pin_value(pin, visited_pins=visited_data_pins.copy())
-                      # Wrap pin name and value appropriately
-                      pin_name_span = span("bp-param-name", f"`{pin.name}`")
-                      # Value might already contain spans from deeper tracing
-                      args_list.append(f"{pin_name_span}={pin_val_raw}")
+                     # !!! Pass the Pin object, not just the ID !!!
+                     pin_val_raw = self.data_tracer.trace_pin_value(pin, visited_pins=visited_data_pins.copy())
+                     # Wrap pin name and value appropriately
+                     pin_name_span = span("bp-param-name", f"`{pin.name}`")
+                     # Value might already contain spans from deeper tracing
+                     args_list.append(f"{pin_name_span}={pin_val_raw}")
              except Exception as e:
                  print(f"ERROR: Error tracing argument pin `{pin.name}` on node {node.guid}: {e}", file=sys.stderr)
                  # Print full traceback for argument tracing errors if debug enabled
                  if ENABLE_NODE_FORMATTER_DEBUG:
-                      import traceback
-                      traceback.print_exc()
+                     import traceback
+                     traceback.print_exc()
                  pin_name_span = span("bp-param-name", f"`{pin.name}`")
                  args_list.append(f"{pin_name_span}={span('bp-error', '[Trace Error]')}")
 
@@ -109,9 +115,10 @@ class NodeFormatter:
         return desc, primary_exec_output
 
 
+    # --- MODIFIED: Add Literal, Bound Events, Composite ---
     def _get_formatter_func(self, node: Node) -> callable:
-        # ... (implementation is unchanged) ...
-        if isinstance(node, (K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey, K2Node_FunctionEntry)): return self._format_event
+        if isinstance(node, K2Node_Literal): return self._format_literal_node # NEW
+        if isinstance(node, (K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey, K2Node_FunctionEntry, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent)): return self._format_event # Modified to include BoundEvents
         if isinstance(node, K2Node_VariableSet): return self._format_variable_set
         if isinstance(node, K2Node_CallFunction): return self._format_call_function
         if isinstance(node, K2Node_MacroInstance): return self._format_macro_instance
@@ -138,45 +145,64 @@ class NodeFormatter:
         if isinstance(node, K2Node_FormatText): return self._format_format_text
         if isinstance(node, K2Node_PlayMontage): return self._format_play_montage
         if isinstance(node, K2Node_LatentAction): return self._format_latent_action
+        if isinstance(node, K2Node_Composite): return self._format_composite # NEW
         return self._format_generic
 
+    # --- NEW: Format Literal Node (Often skipped visually) ---
+    def _format_literal_node(self, node: K2Node_Literal, visited_data_pins: Set[str]) -> str:
+        # Literals are usually pure and handled by data tracer, but provide a fallback representation
+        output_pin = node.get_output_pin()
+        value_str = self.data_tracer.trace_pin_value(output_pin, visited_pins=visited_data_pins.copy()) if output_pin else span("bp-error", "<?>")
+        return f"{span('bp-keyword', '**Literal**')} Value={value_str}" # Simple representation
 
-    # --- Specific Node Formatting Functions (Mostly unchanged, rely on _format_arguments) ---
-    # ... (All _format_* methods remain the same as the previous corrected version) ...
- # In node_formatter.py, find the _format_event method and replace it with:
-
+    # --- MODIFIED: Add Bound Event Handling ---
     def _format_event(self, node: Node, visited_data_pins: Set[str]) -> str:
-        name = "Unknown Event"; keyword = span("bp-keyword", "**Event**"); args_list = []
+        name = "Unknown Event"; keyword = span("bp-keyword", "**Event**"); args_list = []; suffix = ""
         output_data_pins = node.get_output_pins(include_hidden=False)
         for pin in output_data_pins:
-            if not pin.is_execution():
-                pin_type_sig = pin.get_type_signature()
-                pin_type_span = span("bp-data-type", f":`{pin_type_sig}`") if pin_type_sig else ""
-                args_list.append(f"{span('bp-param-name', f'`{pin.name}`')}{pin_type_span}")
+             if not pin.is_execution():
+                  pin_type_sig = pin.get_type_signature()
+                  pin_type_span = span("bp-data-type", f":`{pin_type_sig}`") if pin_type_sig else ""
+                  args_list.append(f"{span('bp-param-name', f'`{pin.name}`')}{pin_type_span}")
         args_str = f" Args:({', '.join(args_list)})" if args_list else ""
 
-        if isinstance(node, K2Node_CustomEvent): 
+        # --- ADDED Bound Event Logic ---
+        if isinstance(node, K2Node_ComponentBoundEvent):
+            delegate_name = node.delegate_property_name or "?Delegate?"
+            comp_name = node.component_property_name or "?Component?"
+            owner_class = extract_simple_name_from_path(node.delegate_owner_class) or "?"
+            # Format the name with spans directly here
+            name = f"{delegate_name} ({span('bp-component-name',f'`{comp_name}`')} on {span('bp-class-name', f'`{owner_class}`')})"
+            keyword = span("bp-keyword", "**Bound Event**")
+        elif isinstance(node, K2Node_ActorBoundEvent):
+            delegate_name = node.delegate_property_name or "?Delegate?"
+            # Owner info might not be easily available, keep it simple
+            # Format the name with spans directly here
+            name = f"{delegate_name}" # Just the name, no extra spans needed if already handled by data_tracer
+            keyword = span("bp-keyword", "**Actor Bound Event**")
+        # --- END ADDED ---
+        elif isinstance(node, K2Node_CustomEvent):
             name = node.custom_function_name or "Unnamed Custom"
             keyword = span("bp-keyword", "**Custom Event**")
-        elif isinstance(node, K2Node_EnhancedInputAction): 
+        elif isinstance(node, K2Node_EnhancedInputAction):
             name = node.input_action_name or "Unnamed Action"
             keyword = span("bp-keyword", "**Input Action**")
-        elif isinstance(node, K2Node_InputAction): 
+        elif isinstance(node, K2Node_InputAction):
             name = node.action_name or "Unnamed Legacy Action"
             keyword = span("bp-keyword", "**Input Action (Legacy)**")
-        elif isinstance(node, K2Node_InputAxisEvent): 
+        elif isinstance(node, K2Node_InputAxisEvent):
             name = node.axis_name or "Unnamed Axis"
             keyword = span("bp-keyword", "**Input Axis (Legacy)**")
-        elif isinstance(node, K2Node_InputKey): 
+        elif isinstance(node, K2Node_InputKey):
             name = node.input_key_name or "Unnamed Key"
             keyword = span("bp-keyword", "**Input Key (Legacy)**")
-        elif isinstance(node, K2Node_InputTouch): 
+        elif isinstance(node, K2Node_InputTouch):
             name = "Touch"
             keyword = span("bp-keyword", "**Input Touch (Legacy)**")
-        elif isinstance(node, K2Node_InputAxisKeyEvent): 
+        elif isinstance(node, K2Node_InputAxisKeyEvent):
             name = node.axis_key_name or "Unnamed Axis Key"
             keyword = span("bp-keyword", "**Input Axis Key (Legacy)**")
-        elif isinstance(node, K2Node_InputDebugKey): 
+        elif isinstance(node, K2Node_InputDebugKey):
             name = node.input_key_name or "Unnamed Debug Key"
             keyword = span("bp-keyword", "**Input Debug Key (Legacy)**")
         elif isinstance(node, K2Node_FunctionEntry):
@@ -185,16 +211,20 @@ class NodeFormatter:
             keyword = span("bp-keyword", "**Function Entry**")
         elif isinstance(node, K2Node_Event):
             name = node.event_function_name or "Unnamed Event"
-            name_map = {"ReceiveBeginPlay": "Begin Play", "ReceiveTick": "Tick", "ReceiveAnyDamage": "Any Damage", 
-                        "ReceiveEndPlay": "End Play", "ReceiveDestroyed": "Destroyed", 
-                        "OnComponentBeginOverlap": "Component Begin Overlap", "OnComponentEndOverlap": "Component End Overlap", 
-                        "OnActorBeginOverlap": "Actor Begin Overlap", "OnActorEndOverlap": "Actor End Overlap", 
+            name_map = {"ReceiveBeginPlay": "Begin Play", "ReceiveTick": "Tick", "ReceiveAnyDamage": "Any Damage",
+                        "ReceiveEndPlay": "End Play", "ReceiveDestroyed": "Destroyed",
+                        "OnComponentBeginOverlap": "Component Begin Overlap", "OnComponentEndOverlap": "Component End Overlap",
+                        "OnActorBeginOverlap": "Actor Begin Overlap", "OnActorEndOverlap": "Actor End Overlap",
                         "OnTakeAnyDamage": "Take Any Damage", "ReceiveDrawHUD": "Draw HUD"}
             name = name_map.get(name, name)
             keyword = span("bp-keyword", "**Event**")
-        
-        # IMPORTANT: Consistently wrap the event name in the bp-event-name class
-        name_span = span("bp-event-name", f"`{name}`")
+
+        # Avoid double backticks/spans if name was already formatted for bound events
+        if isinstance(node, (K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent)):
+            name_span = name
+        else:
+             name_span = span("bp-event-name", f"`{name}`")
+
         return f"{keyword} {name_span}{args_str}"
 
 
@@ -219,10 +249,10 @@ class NodeFormatter:
         return_pin = next((p for p in node.get_output_pins() if not p.is_execution() and p.name == "ReturnValue"), None)
         return_type_sig = return_pin.get_type_signature() if return_pin else None
         return_type = span("bp-data-type", f" -> `{return_type_sig}`") if return_type_sig else ""
-        
+
         # Always use bp-func-name class for function names
         func_name_span = span("bp-func-name", f"`{func_name}`")
-        
+
         # Determine if this is a static call
         is_static_call = target_str_raw.startswith(span("bp-var", "`")) and target_str_raw.endswith("</span>") and target_str_raw != span("bp-var", "`self`") and '.' not in target_str_raw
 
@@ -247,15 +277,15 @@ class NodeFormatter:
         keyword = span("bp-keyword", f"**{macro_name}**") # Use macro type as keyword base
         # Handle specific known macros for better descriptions
         if node.macro_type == "FlipFlop": return keyword
-        if node.macro_type == "Gate": 
+        if node.macro_type == "Gate":
             is_open_pin = node.get_pin(pin_name="IsOpen")
             is_open_val = self.data_tracer.trace_pin_value(is_open_pin, visited_pins=visited_data_pins.copy()) if is_open_pin else span("bp-error", "<?>")
             return f"{keyword} (IsOpen={is_open_val})"
-        if node.macro_type == "IsValid": 
+        if node.macro_type == "IsValid":
             input_pin = node.get_pin(pin_name="Input Object") or node.get_pin(pin_name="inObject") or node.get_pin(pin_name="In")
             input_val = self.data_tracer.trace_pin_value(input_pin, visited_pins=visited_data_pins.copy()) if input_pin else span("bp-error", "<?>")
             return f"{keyword} ({input_val})"
-        if node.macro_type in ("ForEachLoop", "ForEachLoopWithBreak"): 
+        if node.macro_type in ("ForEachLoop", "ForEachLoopWithBreak"):
             array_pin = node.get_pin(pin_name="Array")
             array_val = self.data_tracer.trace_pin_value(array_pin, visited_pins=visited_data_pins.copy()) if array_pin else span("bp-error", "<?>")
             elem_pin = node.get_pin("Array Element")
@@ -265,23 +295,23 @@ class NodeFormatter:
             elem_str = f" Element:{span('bp-data-type', f'`{elem_type}`')}" if elem_pin else ""
             idx_str = f", Index:{span('bp-data-type', f'`{idx_type}`')}" if idx_pin else ""
             return f"{keyword} in ({array_val}) [{elem_str}{idx_str} ]"
-        if node.macro_type in ("ForLoop", "ForLoopWithBreak"): 
+        if node.macro_type in ("ForLoop", "ForLoopWithBreak"):
             first_idx_pin = node.get_pin(pin_name="First Index") or node.get_pin(pin_name="FirstIndex")
             last_idx_pin = node.get_pin(pin_name="Last Index") or node.get_pin(pin_name="LastIndex")
             first_val = self.data_tracer.trace_pin_value(first_idx_pin, visited_pins=visited_data_pins.copy()) if first_idx_pin else span("bp-error", "<?>")
             last_val = self.data_tracer.trace_pin_value(last_idx_pin, visited_pins=visited_data_pins.copy()) if last_idx_pin else span("bp-error", "<?>")
             return f"{keyword} (Index from {first_val} to {last_val})"
-        if node.macro_type == "WhileLoop": 
+        if node.macro_type == "WhileLoop":
             cond_pin = node.get_pin(pin_name="Condition")
             cond_val = self.data_tracer.trace_pin_value(cond_pin, visited_pins=visited_data_pins.copy()) if cond_pin else span("bp-error", "<?>")
             return f"{keyword} (Condition={cond_val})"
-        if node.macro_type == "DoN": 
+        if node.macro_type == "DoN":
             n_pin = node.get_pin(pin_name="N")
             n_val = self.data_tracer.trace_pin_value(n_pin, visited_pins=visited_data_pins.copy()) if n_pin else span("bp-error", "<?>")
             return f"{keyword} (N={n_val})"
         if node.macro_type == "DoOnce": return keyword
         if node.macro_type == "MultiGate": return keyword
-        
+
         # Default macro formatting
         args_str = self._format_arguments(node, visited_data_pins.copy()) # Already includes spans
         macro_name_span = span("bp-macro-name", f"`{macro_name}`")
@@ -294,10 +324,10 @@ class NodeFormatter:
         keyword = span("bp-keyword", "**If**")
         return f"{keyword} ({condition_str_raw})"
 
-    def _format_sequence(self, node: K2Node_ExecutionSequence, visited_data_pins: Set[str]) -> str: 
+    def _format_sequence(self, node: K2Node_ExecutionSequence, visited_data_pins: Set[str]) -> str:
         return span("bp-keyword", "**Sequence**")
-    
-    def _format_flipflop(self, node: K2Node_FlipFlop, visited_data_pins: Set[str]) -> str: 
+
+    def _format_flipflop(self, node: K2Node_FlipFlop, visited_data_pins: Set[str]) -> str:
         return span("bp-keyword", "**FlipFlop**")
 
     def _format_dynamic_cast(self, node: K2Node_DynamicCast, visited_data_pins: Set[str]) -> str:
@@ -321,15 +351,15 @@ class NodeFormatter:
         delegate_name_span = span("bp-delegate-name", f"`{delegate_prop_name}`")
         return f"{keyword} Delegate {delegate_name_span} to {event_str_raw}{target_fmt}"
 
-    def _format_add_delegate(self, node: K2Node_AddDelegate, visited_data_pins: Set[str]) -> str: 
+    def _format_add_delegate(self, node: K2Node_AddDelegate, visited_data_pins: Set[str]) -> str:
         return self._format_delegate_binding(node, visited_data_pins, "Bind")
-    
-    def _format_assign_delegate(self, node: K2Node_AssignDelegate, visited_data_pins: Set[str]) -> str: 
+
+    def _format_assign_delegate(self, node: K2Node_AssignDelegate, visited_data_pins: Set[str]) -> str:
         return self._format_delegate_binding(node, visited_data_pins, "Assign")
-    
-    def _format_remove_delegate(self, node: K2Node_RemoveDelegate, visited_data_pins: Set[str]) -> str: 
+
+    def _format_remove_delegate(self, node: K2Node_RemoveDelegate, visited_data_pins: Set[str]) -> str:
         return self._format_delegate_binding(node, visited_data_pins, "Unbind")
-    
+
     def _format_clear_delegate(self, node: K2Node_ClearDelegate, visited_data_pins: Set[str]) -> str:
         delegate_prop_name = node.delegate_name or "?Delegate?"
         target_pin = node.get_target_pin()
@@ -353,9 +383,9 @@ class NodeFormatter:
         selection_pin = node.get_selection_pin()
         selection_str_raw = self.data_tracer.trace_pin_value(selection_pin, visited_pins=visited_data_pins.copy()) if selection_pin else span("bp-error", "<?>")
         switch_type = ""
-        if isinstance(node, K2Node_SwitchEnum): 
+        if isinstance(node, K2Node_SwitchEnum):
             switch_type = f" on Enum {span('bp-data-type', f'`{node.enum_type}`')}" if node.enum_type else " on Enum"
-        elif selection_pin and selection_pin.category != 'exec': 
+        elif selection_pin and selection_pin.category != 'exec':
             switch_type = f" on {span('bp-data-type', f'`{selection_pin.get_type_signature()}`')}"
         keyword = span("bp-keyword", "**Switch**")
         return f"{keyword} ({selection_str_raw}){switch_type}"
@@ -399,7 +429,7 @@ class NodeFormatter:
         exclude = {'class', 'spawntransform'}
         other_args_str = self._format_arguments(node, visited_data_pins.copy(), exclude_pins=exclude)
         keyword = span("bp-keyword", "**Spawn Actor**")
-        class_name_span = span("bp-class-name", class_name)
+        class_name_span = span("bp-class-name", class_name) # class_name might already have spans
         return f"{keyword} {class_name_span} at ({spawn_transform_str}) {other_args_str}"
 
     def _format_add_component(self, node: K2Node_AddComponent, visited_data_pins: Set[str]) -> str:
@@ -410,7 +440,7 @@ class NodeFormatter:
         target_fmt = self._format_target(target_str_raw)
         other_args_str = self._format_arguments(node, visited_data_pins.copy(), exclude_pins={'componentclass', 'target'}) # Exclude target too
         keyword = span("bp-keyword", "**Add Component**")
-        comp_name_span = span("bp-component-name", comp_name)
+        comp_name_span = span("bp-component-name", comp_name) # comp_name might already have spans
         return f"{keyword} {comp_name_span}{target_fmt} {other_args_str}"
 
     def _format_create_widget(self, node: K2Node_CreateWidget, visited_data_pins: Set[str]) -> str:
@@ -420,7 +450,7 @@ class NodeFormatter:
         owner_str = self.data_tracer.trace_pin_value(owner_pin, visited_pins=visited_data_pins.copy()) if owner_pin else "`DefaultPlayer`"
         other_args_str = self._format_arguments(node, visited_data_pins.copy(), exclude_pins={'widgetclass', 'owningplayer'})
         keyword = span("bp-keyword", "**Create Widget**")
-        widget_name_span = span("bp-widget-name", widget_name)
+        widget_name_span = span("bp-widget-name", widget_name) # widget_name might already have spans
         return f"{keyword} {widget_name_span} for ({owner_str}) {other_args_str}"
 
     def _format_generic_create_object(self, node: K2Node_GenericCreateObject, visited_data_pins: Set[str]) -> str:
@@ -430,7 +460,7 @@ class NodeFormatter:
         outer_str = self.data_tracer.trace_pin_value(outer_pin, visited_pins=visited_data_pins.copy()) if outer_pin else "`DefaultOuter`"
         other_args_str = self._format_arguments(node, visited_data_pins.copy(), exclude_pins={'class', 'outer'})
         keyword = span("bp-keyword", "**Create Object**")
-        class_name_span = span("bp-class-name", class_name)
+        class_name_span = span("bp-class-name", class_name) # class_name might already have spans
         return f"{keyword} {class_name_span} Outer=({outer_str}) {other_args_str}"
 
     def _format_call_array_function(self, node: K2Node_CallArrayFunction, visited_data_pins: Set[str]) -> str:
@@ -441,6 +471,7 @@ class NodeFormatter:
         args_str = self._format_arguments(node, visited_data_pins.copy(), exclude_pins=exclude)
         keyword = span("bp-keyword", "**Array Op**")
         func_name_span = span("bp-func-name", f"`{func_name}`")
+        # Provide a slightly more descriptive format than just the trace result
         return f"{keyword} {func_name_span}{args_str} on ({array_str_raw})"
 
     def _format_format_text(self, node: K2Node_FormatText, visited_data_pins: Set[str]) -> str:
@@ -458,21 +489,40 @@ class NodeFormatter:
         target_fmt = self._format_target(target_str_raw)
         other_args_str = self._format_arguments(node, visited_data_pins.copy(), exclude_pins={'target', 'montagetoplay'})
         keyword = span("bp-keyword", "**Play Montage**")
-        montage_name_span = span("bp-montage-name", montage_str)
+        montage_name_span = span("bp-montage-name", montage_str) # montage_str might already have spans
         return f"{keyword} {montage_name_span}{target_fmt} {other_args_str}"
 
     def _format_latent_action(self, node: K2Node_LatentAction, visited_data_pins: Set[str]) -> str:
-        action_name = node.node_type
+        # Try to get a more specific name if available (e.g., from function name)
+        action_name = getattr(node, 'function_name', None) or node.node_type
         args_str = self._format_arguments(node, visited_data_pins.copy())
         keyword = span("bp-keyword", "**Latent Action**")
         action_name_span = span("bp-action-name", f"`{action_name}`")
         return f"{keyword} {action_name_span}{args_str}"
 
+    # --- NEW: Format Composite Node ---
+    def _format_composite(self, node: K2Node_Composite, visited_data_pins: Set[str]) -> str:
+        graph_name = node.bound_graph_name or "Unnamed Graph"
+        keyword = span("bp-keyword", "**Collapsed Graph**")
+        graph_name_span = span("bp-graph-name", f"`{graph_name}`") # Add new CSS class if desired
+        # Arguments are tunnel pins, might not need detailed formatting here
+        # args_str = self._format_arguments(node, visited_data_pins.copy()) # Optional: could format tunnel pins if needed
+        return f"{keyword}: {graph_name_span}"
+    # --- END NEW ---
+
     def _format_generic(self, node: Node, visited_data_pins: Set[str]) -> str:
         args_str = self._format_arguments(node, visited_data_pins.copy())
-        keyword = span("bp-keyword", "**Execute**")
-        node_type_span = span("bp-node-type", f"`{node.node_type}`")
-        return f"{keyword} {node_type_span}{args_str}"
+        # Try to use Node Title if available and not just a generic type
+        node_title = getattr(node, 'node_title', None)
+        if node_title and node_title != node.node_type:
+             # Use title if it's more descriptive than the type
+             name_span = span("bp-node-title", f"`{node_title}`")
+             keyword = span("bp-keyword", f"**{node.node_type.replace('K2Node_', '')}**") # Use simplified type as keyword
+        else:
+             name_span = span("bp-node-type", f"`{node.node_type}`")
+             keyword = span("bp-keyword", "**Execute**") # Generic keyword
+
+        return f"{keyword} {name_span}{args_str}"
 
 
 # --- END OF FILE blueprint_parser/formatter/node_formatter.py ---

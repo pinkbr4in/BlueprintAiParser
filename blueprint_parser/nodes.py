@@ -4,7 +4,7 @@ import re
 from typing import List, Dict, Optional, Any, Tuple, Union
 
 # --- Use relative imports ---
-from .utils import extract_simple_name_from_path # Import needed utility
+from .utils import extract_simple_name_from_path, extract_member_name # Import needed utility
 
 # --- Debug Flag ---
 ENABLE_NODE_DEBUG = False # Set to True for verbose node creation/fallback info
@@ -119,9 +119,9 @@ class Node:
         if self.is_pure_call: return True
         # Check based on node type (some are always pure)
         if isinstance(self, (K2Node_VariableGet, K2Node_MakeStruct, K2Node_BreakStruct, K2Node_Select,
-                             K2Node_PromotableOperator, K2Node_CommutativeAssociativeBinaryOperator,
-                             K2Node_GetClassDefaults, K2Node_MakeArray, K2Node_MakeMap,
-                             K2Node_GetArrayItem, K2Node_CreateDelegate)):
+                              K2Node_PromotableOperator, K2Node_CommutativeAssociativeBinaryOperator,
+                              K2Node_GetClassDefaults, K2Node_MakeArray, K2Node_MakeMap,
+                              K2Node_GetArrayItem, K2Node_CreateDelegate, K2Node_Literal)): # Added Literal
             return True
         # Check if it has *any* execution pins
         return not any(pin.is_execution() for pin in self.pins.values())
@@ -624,8 +624,22 @@ class K2Node_FunctionResult(Node):
 
 class K2Node_Tunnel(Node):
     def __init__(self, guid: str): super().__init__(guid, "Tunnel")
+
+# --- NEW: K2Node_Literal ---
+class K2Node_Literal(Node):
+    def __init__(self, guid: str):
+        super().__init__(guid, "Literal")
+    def get_output_pin(self) -> Optional[Pin]:
+        # Literals typically have one unnamed output pin or named "ReturnValue"
+        pin = self.get_pin(pin_name="ReturnValue")
+        if pin and pin.is_output(): return pin
+        return next((p for p in self.pins.values() if p.is_output()), None)
+
+# --- MODIFIED: K2Node_Composite ---
 class K2Node_Composite(Node):
-    def __init__(self, guid: str): super().__init__(guid, "Composite")
+     def __init__(self, guid: str):
+         super().__init__(guid, "Composite")
+         self.bound_graph_name: Optional[str] = None # To store the name
 
 class K2Node_LatentAction(Node):
     def __init__(self, guid: str, node_type:str="LatentAction"):
@@ -646,11 +660,17 @@ class K2Node_PlayMontage(K2Node_LatentAction):
     def get_on_notify_begin_pin(self) -> Optional[Pin]: return self.get_pin("OnNotifyBegin")
     def get_on_notify_end_pin(self) -> Optional[Pin]: return self.get_pin("OnNotifyEnd")
 
+# --- MODIFIED: K2Node_CallArrayFunction ---
 class K2Node_CallArrayFunction(Node):
-    def __init__(self, guid: str): super().__init__(guid, "CallArrayFunction")
+    def __init__(self, guid: str):
+        super().__init__(guid, "CallArrayFunction")
+        self.array_function_name: Optional[str] = None # Ensure this exists
     def get_target_pin(self) -> Optional[Pin]: return self.get_pin("Target Array")
     def get_item_pin(self) -> Optional[Pin]: return self.get_pin("Item") or self.get_pin("item to find") or self.get_pin("New Item")
     def get_index_pin(self) -> Optional[Pin]: return self.get_pin("Index")
+    # Add getters for common array function outputs
+    def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue") # For functions like Length, Get, Find
+    def get_output_array_pin(self) -> Optional[Pin]: return self.get_pin("Output Array") # For functions like Set, Add, Insert, Remove
 
 class K2Node_GetArrayItem(Node):
     def __init__(self, guid: str): super().__init__(guid, "GetArrayItem")
@@ -682,7 +702,7 @@ class K2Node_FormatText(Node):
     def get_argument_pins(self) -> List[Pin]: return sorted([p for p in self.get_input_pins() if p.name != "Format"], key=lambda p: p.name or "")
     def get_result_pin(self) -> Optional[Pin]: return self.get_pin("Result")
 
-# --- START MODIFIED NODE SUBCLASSES ---
+# --- START MODIFIED NODE SUBCLASSES (already present in base code) ---
 class K2Node_SpawnActorFromClass(Node):
     def __init__(self, guid: str):
         super().__init__(guid, "SpawnActorFromClass")
@@ -794,6 +814,20 @@ class K2Node_GetClassDefaults(Node):
         return None
 # --- END MODIFIED NODE SUBCLASSES ---
 
+# --- NEW: Bound Event Nodes ---
+class K2Node_ComponentBoundEvent(Node):
+     def __init__(self, guid: str):
+         super().__init__(guid, "ComponentBoundEvent")
+         self.component_property_name: Optional[str] = None
+         self.delegate_property_name: Optional[str] = None
+         self.delegate_owner_class: Optional[str] = None # Store the class path
+
+class K2Node_ActorBoundEvent(Node):
+     def __init__(self, guid: str):
+         super().__init__(guid, "ActorBoundEvent")
+         self.delegate_property_name: Optional[str] = None
+         self.event_owner = None # Can store actor ref if needed/parsable
+
 class NiagaraNodeReroute(K2Node_Knot):
     def __init__(self, guid: str): super().__init__(guid, "NiagaraReroute")
 
@@ -833,14 +867,14 @@ NODE_TYPE_MAP: Dict[str, type[Node]] = {
     "/Script/BlueprintGraph.K2Node_FunctionEntry": K2Node_FunctionEntry,
     "/Script/BlueprintGraph.K2Node_FunctionResult": K2Node_FunctionResult,
     "/Script/BlueprintGraph.K2Node_Tunnel": K2Node_Tunnel,
-    "/Script/BlueprintGraph.K2Node_Composite": K2Node_Composite,
+    "/Script/BlueprintGraph.K2Node_Composite": K2Node_Composite, # Keep Composite
     "/Script/BlueprintGraph.K2Node_DynamicCast": K2Node_DynamicCast,
     "/Script/BlueprintGraph.K2Node_MakeArray": K2Node_MakeArray,
     "/Script/BlueprintGraph.K2Node_GetArrayItem": K2Node_GetArrayItem,
-    "/Script/BlueprintGraph.K2Node_CallArrayFunction": K2Node_CallArrayFunction,
+    "/Script/BlueprintGraph.K2Node_CallArrayFunction": K2Node_CallArrayFunction, # Keep Array Function
     "/Script/BlueprintGraph.K2Node_FormatText": K2Node_FormatText,
     "/Script/BlueprintGraph.K2Node_MakeMap": K2Node_MakeMap,
-    "/Script/BlueprintGraph.K2Node_GetClassDefaults": K2Node_GetClassDefaults,
+    "/Script/BlueprintGraph.K2Node_GetClassDefaults": K2Node_GetClassDefaults, # Keep Class Defaults
     "/Script/BlueprintGraph.K2Node_SpawnActorFromClass": K2Node_SpawnActorFromClass,
     "/Script/BlueprintGraph.K2Node_AddComponent": K2Node_AddComponent,
     "/Script/UMGEditor.K2Node_CreateWidget": K2Node_CreateWidget,
@@ -861,6 +895,12 @@ NODE_TYPE_MAP: Dict[str, type[Node]] = {
     # Map specific reroutes to appropriate classes
     "/Script/UnrealEd.MaterialGraphNode_Knot": K2Node_Knot,
     "/Script/NiagaraEditor.NiagaraNodeReroute": NiagaraNodeReroute,
+
+    # --- NEW MAPPINGS ---
+    "/Script/BlueprintGraph.K2Node_Literal": K2Node_Literal, # Add Literal
+    "/Script/BlueprintGraph.K2Node_ComponentBoundEvent": K2Node_ComponentBoundEvent, # Add Bound Event
+    "/Script/BlueprintGraph.K2Node_ActorBoundEvent": K2Node_ActorBoundEvent, # Add Bound Event
+    # --- END NEW ---
 
     # --- Map remaining specialized types to the base Node class ---
     # (This relies on create_node_instance determining the node_type string)
@@ -894,7 +934,7 @@ NODE_TYPE_MAP: Dict[str, type[Node]] = {
     "/Script/AIGraph.": Node, # Catch all AIGraph nodes
 
     # Other K2Nodes mapped generically for now
-    "/Script/BlueprintGraph.K2Node_Literal": Node,
+    #"/Script/BlueprintGraph.K2Node_Literal": Node, # Now mapped specifically
     "/Script/BlueprintGraph.K2Node_Self": Node,
     "/Script/BlueprintGraph.K2Node_ConvertAsset": Node,
     "/Script/BlueprintGraph.K2Node_EnumEquality": Node,
@@ -909,8 +949,8 @@ NODE_TYPE_MAP: Dict[str, type[Node]] = {
     "/Script/AIGraph.K2Node_AIMoveTo": K2Node_LatentAction,
 
     # Other common nodes
-    "/Script/BlueprintGraph.K2Node_ComponentBoundEvent": Node,
-    "/Script/BlueprintGraph.K2Node_ActorBoundEvent": Node,
+    #"/Script/BlueprintGraph.K2Node_ComponentBoundEvent": Node, # Now mapped specifically
+    #"/Script/BlueprintGraph.K2Node_ActorBoundEvent": Node, # Now mapped specifically
 }
 
 def create_node_instance(guid: str, class_path: str) -> Node:

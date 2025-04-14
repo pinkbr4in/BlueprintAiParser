@@ -5,17 +5,21 @@ from typing import Dict, Optional, Set, Any, List, TYPE_CHECKING, Tuple
 import sys
 
 # --- Use relative import ---
+# Add missing imports based on the request
 from ..nodes import (Node, Pin, K2Node_Knot, K2Node_VariableGet, K2Node_CallFunction,
                      K2Node_PromotableOperator, K2Node_CommutativeAssociativeBinaryOperator,
                      K2Node_EnhancedInputAction, K2Node_DynamicCast, K2Node_FlipFlop,
                      K2Node_Select, K2Node_MakeStruct, K2Node_BreakStruct,
                      K2Node_VariableSet, K2Node_Timeline, K2Node_InputAction, K2Node_InputAxisEvent,
                      K2Node_InputKey, K2Node_GetClassDefaults, K2Node_MakeArray, K2Node_MakeMap,
-                     K2Node_GetArrayItem, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey,
+                     # K2Node_GetArrayItem already imported
+                     K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey,
                      K2Node_GenericCreateObject, K2Node_CreateWidget, K2Node_AddComponent,
                      K2Node_SpawnActorFromClass, K2Node_CreateDelegate, K2Node_CustomEvent, K2Node_Event,
                      K2Node_SetFieldsInStruct, K2Node_FormatText, K2Node_FunctionResult, K2Node_FunctionEntry,
-                     K2Node_MacroInstance, K2Node_GetSubsystem) # Added K2Node_GetSubsystem
+                     K2Node_MacroInstance, K2Node_GetSubsystem,
+                     K2Node_Literal, K2Node_CallArrayFunction, K2Node_GetArrayItem # Added based on request
+                     )
 # --- Use relative import for utils ---
 from ..utils import extract_simple_name_from_path, extract_member_name, parse_struct_default_value # Added parse_struct_default_value
 
@@ -39,14 +43,15 @@ class DataTracer:
         self.parser = parser
         self._node_formatter_instance = None
         self.resolved_pin_cache: Dict[str, str] = {}
-        # --- (Keep MATH_OPERATORS and TYPE_CONVERSIONS) ---
-        self.MATH_OPERATORS = {
+        # --- (Keep MATH_OPERATORS and TYPE_CONVERSIONS, expanded MATH_OPERATORS) ---
+        self.MATH_OPERATORS = { # More extensive mapping
             "Divide": "/", "Add": "+", "Subtract": "-", "Multiply": "*",
             "Less": "<", "Greater": ">", "LessEqual": "<=", "GreaterEqual": ">=",
             "EqualEqual": "==", "NotEqual": "!=",
             "BooleanAND": "AND", "BooleanOR": "OR", "BooleanXOR": "XOR", "BooleanNAND": "NAND",
             "Max": "MAX", "Min": "MIN", "FMax": "MAX", "FMin": "MIN",
-            "Percent": "%", "BooleanNOT": "NOT" # Added NOT
+            "Percent": "%", "BooleanNOT": "NOT",
+            # Add vector/rotator ops if needed: e.g., "Multiply_VectorFloat": "*", "Add_VectorVector": "+"
         }
         self.TYPE_CONVERSIONS = {
             "Conv_BoolToFloat": "float", "Conv_BoolToInt": "int", "Conv_BoolToString": "string",
@@ -58,6 +63,12 @@ class DataTracer:
             "Conv_StringToBool": "bool", "Conv_StringToInt": "int", "Conv_StringToFloat": "float", "Conv_StringToName": "name",
             "Conv_NameToBool": "bool", "Conv_NameToString": "string",
             "Conv_ObjectToString": "string",
+            # Add function based conversions if needed, e.g. ToText (Int) etc.
+            "Conv_IntToText": "Text", "Conv_FloatToText": "Text", "Conv_StringToText": "Text", "Conv_NameToText": "Text",
+            "Conv_ByteToText": "Text", "Conv_BoolToText": "Text", "Conv_VectorToString": "string",
+            # Common functions acting as conversions
+            "ToString (Vector)": "string", "ToString (Rotator)": "string", "ToString (Object)": "string",
+            # ... potentially more based on common library functions
         }
 
     @property
@@ -164,35 +175,43 @@ class DataTracer:
             input_value_pin = source_node.get_value_input_pin()
             return self._resolve_pin_value_recursive(input_value_pin, depth + 1, visited_pins.copy()) if input_value_pin else span("bp-error", "[Set Input Missing]") # Pass copy
 
-        # --- Specific Node Handling ---
+        # --- NEW: K2Node_Literal ---
+        if isinstance(source_node, K2Node_Literal):
+            # K2Node_Literal might store the value directly in the node or the output pin's default
+            literal_output_pin = source_node.get_output_pin()
+            if literal_output_pin:
+                 # Check both node property and pin default
+                 literal_value = getattr(source_node, 'value', None) or literal_output_pin.default_value
+                 if literal_value is not None:
+                     return self._format_literal_value(literal_output_pin, literal_value)
+            # Fallback if pin or value not found (should be rare)
+            return span("bp-error", "[Literal Value?]")
+        # --- END NEW ---
 
-        # --- UPDATED GetSubsystem ---
+        # --- Existing Specific Node Handling ---
         elif isinstance(source_node, K2Node_GetSubsystem):
             if source_pin == source_node.get_return_value_pin():
-                # --- Use helper method ---
                 subsystem_name = source_node.get_subsystem_class_name() or "UnknownSubsystem"
-                # --- END UPDATE ---
                 target_str = ""
                 if hasattr(source_node, 'get_player_controller_pin'):
-                    pc_pin = source_node.get_player_controller_pin()
-                    if pc_pin:
-                        pc_str = self._resolve_pin_value_recursive(pc_pin, depth + 1, visited_pins.copy()) # Pass copy
-                        target_str = f" from {pc_str}"
+                     pc_pin = source_node.get_player_controller_pin()
+                     if pc_pin:
+                         pc_str = self._resolve_pin_value_recursive(pc_pin, depth + 1, visited_pins.copy())
+                         target_str = f" from {pc_str}"
                 return f"{span('bp-keyword', 'GetSubsystem')}({span('bp-class-name', f'`{subsystem_name}`')}){target_str}"
             else:
                  return f"{span('bp-info', 'ValueFrom')}({span('bp-node-type', source_node.node_type)}.{span('bp-pin-name', f'`{source_pin.name}`')})"
-        # --- END GetSubsystem Update ---
 
         elif isinstance(source_node, K2Node_CreateWidget):
             if source_pin == source_node.get_return_value_pin():
                 class_name = "`UnknownWidget`"
                 class_pin = source_node.get_widget_class_pin()
                 if class_pin:
-                    if class_pin.linked_pins:
-                        class_name = self._resolve_pin_value_recursive(class_pin, depth + 1, visited_pins.copy()) # Pass copy
-                    else: # Use default object or node property (via helper)
-                        resolved_name = source_node.get_widget_class_name()
-                        class_name = f"`{resolved_name}`" if resolved_name else class_name
+                     if class_pin.linked_pins:
+                         class_name = self._resolve_pin_value_recursive(class_pin, depth + 1, visited_pins.copy()) # Pass copy
+                     else: # Use default object or node property (via helper)
+                         resolved_name = source_node.get_widget_class_name()
+                         class_name = f"`{resolved_name}`" if resolved_name else class_name
                 return f"{span('bp-keyword', 'CreateWidget')}({span('bp-widget-name', class_name)})"
 
         elif isinstance(source_node, K2Node_SpawnActorFromClass):
@@ -200,28 +219,28 @@ class DataTracer:
                 class_name = "`UnknownActor`"
                 class_pin = source_node.get_class_pin()
                 if class_pin:
-                    if class_pin.linked_pins:
-                        class_name = self._resolve_pin_value_recursive(class_pin, depth + 1, visited_pins.copy()) # Pass copy
-                    else: # Use default object or node property (via helper)
-                        resolved_name = source_node.get_spawn_class_name()
-                        class_name = f"`{resolved_name}`" if resolved_name else class_name
+                     if class_pin.linked_pins:
+                         class_name = self._resolve_pin_value_recursive(class_pin, depth + 1, visited_pins.copy()) # Pass copy
+                     else: # Use default object or node property (via helper)
+                         resolved_name = source_node.get_spawn_class_name()
+                         class_name = f"`{resolved_name}`" if resolved_name else class_name
                 return f"{span('bp-keyword', 'SpawnedActor')}({span('bp-class-name', class_name)})"
 
         elif isinstance(source_node, K2Node_AddComponent):
-             if source_pin == source_node.get_return_value_pin():
+            if source_pin == source_node.get_return_value_pin():
                 class_name = "`UnknownComponent`"
                 class_pin = source_node.get_component_class_pin()
                 if class_pin:
-                    if class_pin.linked_pins:
-                        class_name = self._resolve_pin_value_recursive(class_pin, depth + 1, visited_pins.copy()) # Pass copy
-                    else: # Use default object or node property (via helper)
-                        resolved_name = source_node.get_component_class_name()
-                        class_name = f"`{resolved_name}`" if resolved_name else class_name
+                     if class_pin.linked_pins:
+                         class_name = self._resolve_pin_value_recursive(class_pin, depth + 1, visited_pins.copy()) # Pass copy
+                     else: # Use default object or node property (via helper)
+                         resolved_name = source_node.get_component_class_name()
+                         class_name = f"`{resolved_name}`" if resolved_name else class_name
                 return f"{span('bp-keyword', 'AddedComponent')}({span('bp-component-name', class_name)})"
 
         elif isinstance(source_node, K2Node_CallFunction) and source_node.function_name == "GetPlayerController":
-             if source_pin == source_node.get_return_value_pin():
-                  return span("bp-var", "`PlayerController`")
+            if source_pin == source_node.get_return_value_pin():
+                 return span("bp-var", "`PlayerController`")
 
         elif isinstance(source_node, K2Node_GetClassDefaults):
             class_name = source_node.get_target_class_name() or "UnknownClass"
@@ -229,9 +248,9 @@ class DataTracer:
             return f"{span('bp-var', f'`{class_name}`')}::{span('bp-keyword', 'Default')}.{span('bp-pin-name', f'`{member_name}`')}"
 
         elif isinstance(source_node, (K2Node_FunctionEntry, K2Node_Event, K2Node_CustomEvent,
-                                      K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent,
-                                      K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey)):
-             # Handle output data pins from Events/Inputs/Function Entries
+                                       K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent,
+                                       K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey)):
+            # Handle output data pins from Events/Inputs/Function Entries
             if source_pin.is_output() and not source_pin.is_execution():
                  event_name = getattr(source_node, 'custom_function_name', None) or \
                               getattr(source_node, 'event_function_name', None) or \
@@ -246,10 +265,121 @@ class DataTracer:
                  event_name = name_map.get(event_name, event_name)
                  return f"{span('bp-event-name', f'`{event_name}`')}.{span('bp-param-name', f'`{source_pin.name}`')}"
 
+        # --- Operators / Conversions (MODIFIED) ---
         elif isinstance(source_node, (K2Node_PromotableOperator, K2Node_CommutativeAssociativeBinaryOperator)):
-              return self._format_operator(source_node, source_pin, depth, visited_pins.copy()) # Pass copy
-        elif isinstance(source_node, K2Node_CallFunction) and source_node.is_pure_call:
-              return self._format_pure_function_call(source_node, source_pin, depth, visited_pins.copy()) # Pass copy
+            # Check if it's a known conversion first
+            op_name = getattr(source_node, 'operation_name', None) or getattr(source_node, 'function_name', None)
+            # Normalize common conversion function names if needed (e.g., ToText (Int) -> Conv_IntToText)
+            if op_name and op_name in self.TYPE_CONVERSIONS:
+                 return self._format_conversion(source_node, source_pin, depth, visited_pins.copy())
+            else: # Otherwise, format as operator
+                 return self._format_operator(source_node, source_pin, depth, visited_pins.copy())
+        # Handle CallFunction nodes that are actually conversions
+        elif isinstance(source_node, K2Node_CallFunction):
+            func_name = source_node.function_name
+            # Normalize function name for lookup if needed
+            # e.g., "ToString (Vector)" -> "Conv_VectorToString" if that's in TYPE_CONVERSIONS
+            normalized_func_name = func_name
+            if func_name and func_name.startswith("To") and " (" in func_name: # Heuristic for ToType (Input)
+                 match = re.match(r"^(.*?)\s*\((.*?)\)$", func_name)
+                 if match:
+                     base_func, input_type = match.groups()
+                     # Construct a potential key like Conv_InputToBaseFunc
+                     conv_key = f"Conv_{input_type.replace(' ', '')}To{base_func}"
+                     if conv_key in self.TYPE_CONVERSIONS:
+                          normalized_func_name = conv_key
+                     elif func_name in self.TYPE_CONVERSIONS: # Check original name too
+                         normalized_func_name = func_name
+
+            if normalized_func_name and normalized_func_name in self.TYPE_CONVERSIONS:
+                return self._format_conversion(source_node, source_pin, depth, visited_pins.copy())
+            # Handle pure function calls normally if not a conversion
+            elif source_node.is_pure_call:
+                return self._format_pure_function_call(source_node, source_pin, depth, visited_pins.copy())
+
+        # --- Array Operations (NEW / MODIFIED) ---
+        elif isinstance(source_node, K2Node_MakeArray):
+            item_pins = source_node.get_item_pins()
+            # Pass copy for recursive calls
+            item_strs = [self._resolve_pin_value_recursive(p, depth + 1, visited_pins.copy()) for p in item_pins]
+            return f"{span('bp-literal-container', '[')}{', '.join(item_strs)}{span('bp-literal-container', ']')}"
+
+        elif isinstance(source_node, K2Node_GetArrayItem):
+             array_pin = source_node.get_target_pin()
+             index_pin = source_node.get_index_pin()
+             # Pass copy for recursive calls
+             array_str = self._resolve_pin_value_recursive(array_pin, depth + 1, visited_pins.copy()) if array_pin else span("bp-error", "<?>")
+             index_str = self._resolve_pin_value_recursive(index_pin, depth + 1, visited_pins.copy()) if index_pin else span("bp-error", "<?>")
+             # Use simplified representation Array[Index]
+             if re.match(r'^<span class="bp-var">`[a-zA-Z0-9_]+`</span>$', array_str):
+                 return f"{array_str}{span('bp-operator', '[')}{index_str}{span('bp-operator', ']')}"
+             else: # Wrap complex array sources
+                 return f"({array_str}){span('bp-operator', '[')}{index_str}{span('bp-operator', ']')}"
+
+        elif isinstance(source_node, K2Node_CallArrayFunction):
+             # array_function_name comes from node properties
+             func_name = source_node.array_function_name or "ArrayOp"
+             array_pin = source_node.get_target_pin() # Usually named 'Target Array'
+             # Pass copy for recursive calls
+             array_str = self._resolve_pin_value_recursive(array_pin, depth + 1, visited_pins.copy()) if array_pin else span("bp-error", "<?>")
+             # Format array source nicely (wrap if complex)
+             array_str_fmt = array_str if re.match(r'^<span class="bp-var">`[a-zA-Z0-9_]+`</span>$', array_str) else f"({array_str})"
+
+             # Format based on common array functions
+             if func_name == "Add":
+                 item_pin = source_node.get_item_pin() # Pin usually named like 'New Item'
+                 item_str = self._resolve_pin_value_recursive(item_pin, depth + 1, visited_pins.copy()) if item_pin else span("bp-error", "<?>")
+                 return f"{array_str_fmt}.{span('bp-func-name', 'Add')}({item_str})"
+             elif func_name == "RemoveIndex":
+                 index_pin = source_node.get_index_pin() # Pin usually named 'Index'
+                 index_str = self._resolve_pin_value_recursive(index_pin, depth + 1, visited_pins.copy()) if index_pin else span("bp-error", "<?>")
+                 return f"{array_str_fmt}.{span('bp-func-name', 'RemoveAt')}({index_str})"
+             elif func_name == "Length":
+                 # Length often only outputs an int, no extra args needed here
+                 return f"{array_str_fmt}.{span('bp-func-name', 'Length')}()"
+             elif func_name == "IsValidIndex":
+                 index_pin = source_node.get_index_pin() # Pin usually named 'Index'
+                 index_str = self._resolve_pin_value_recursive(index_pin, depth + 1, visited_pins.copy()) if index_pin else span("bp-error", "<?>")
+                 return f"{array_str_fmt}.{span('bp-func-name', 'IsValidIndex')}({index_str})"
+             elif func_name == "Find":
+                 item_pin = source_node.get_item_pin() # Pin usually named 'ItemToFind'
+                 item_str = self._resolve_pin_value_recursive(item_pin, depth + 1, visited_pins.copy()) if item_pin else span("bp-error", "<?>")
+                 # Find usually returns the index
+                 return f"{array_str_fmt}.{span('bp-func-name', 'Find')}({item_str})"
+             elif func_name == "SetArrayElem":
+                 # This modifies the array; trace usually follows the output array if needed elsewhere
+                 index_pin = source_node.get_index_pin() # Pin named 'Index'
+                 item_pin = source_node.get_item_pin() # Pin named 'Item'
+                 index_str = self._resolve_pin_value_recursive(index_pin, depth + 1, visited_pins.copy()) if index_pin else span("bp-error", "<?>")
+                 item_str = self._resolve_pin_value_recursive(item_pin, depth + 1, visited_pins.copy()) if item_pin else span("bp-error", "<?>")
+                 # Represent Set as an assignment-like operation for clarity in trace
+                 return f"{array_str_fmt}[{index_str}] = {item_str}" # Note: This represents the *action*, not the final array value directly
+             # Add other common array functions: Contains, Clear, Insert, RemoveItem, LastIndex etc.
+             # Example: Contains
+             elif func_name == "Contains":
+                 item_pin = source_node.get_item_pin() # Pin named 'ItemToFind'
+                 item_str = self._resolve_pin_value_recursive(item_pin, depth + 1, visited_pins.copy()) if item_pin else span("bp-error", "<?>")
+                 return f"{array_str_fmt}.{span('bp-func-name', 'Contains')}({item_str})"
+             # Example: Get (different from GetArrayItem node, this is CallArrayFunction 'Get')
+             elif func_name == "Get":
+                 index_pin = source_node.get_index_pin()
+                 index_str = self._resolve_pin_value_recursive(index_pin, depth + 1, visited_pins.copy()) if index_pin else span("bp-error", "<?>")
+                 # Mimic array access notation
+                 return f"{array_str_fmt}{span('bp-operator', '[')}{index_str}{span('bp-operator', ']')}"
+
+             else: # Default format for less common or unknown array functions
+                 # Exclude the target array pin itself from the argument list
+                 exclude = {array_pin.name.lower()} if array_pin and array_pin.name else set()
+                 # Pass copy for recursive calls
+                 args_str = self._format_arguments_for_trace(source_node, depth + 1, visited_pins.copy(), exclude_pins=exclude)
+                 return f"{array_str_fmt}.{span('bp-func-name', f'`{func_name}`')}({args_str})"
+        # --- END Array Operations ---
+
+
+        # --- Existing Pure Function / Macro Handling (Make sure CallFunction was handled above if it's a conversion) ---
+        # elif isinstance(source_node, K2Node_CallFunction) and source_node.is_pure_call:
+        #       # Already handled pure non-conversion CallFunctions above
+        #       pass
         elif isinstance(source_node, K2Node_MacroInstance) and source_node.is_pure():
               return self._format_pure_macro_call(source_node, source_pin, depth, visited_pins.copy()) # Pass copy
         elif isinstance(source_node, K2Node_Timeline):
@@ -267,17 +397,17 @@ class DataTracer:
             else:
                 return f"{span('bp-keyword', 'Cast')}({object_str}).{span('bp-pin-name', f'`{source_pin.name}`')}"
         elif isinstance(source_node, K2Node_FlipFlop):
-             if source_pin == source_node.get_is_a_pin():
-                  return f"{span('bp-keyword', 'FlipFlop')}.{span('bp-pin-name', 'IsA')}"
-             else:
-                  return f"{span('bp-keyword', 'FlipFlop')}.{span('bp-pin-name', f'`{source_pin.name}`')}" # Should not happen often
+            if source_pin == source_node.get_is_a_pin():
+                 return f"{span('bp-keyword', 'FlipFlop')}.{span('bp-pin-name', 'IsA')}"
+            else:
+                 return f"{span('bp-keyword', 'FlipFlop')}.{span('bp-pin-name', f'`{source_pin.name}`')}" # Should not happen often
         elif isinstance(source_node, K2Node_Select):
-              index_pin = source_node.get_index_pin()
-              index_str = self._resolve_pin_value_recursive(index_pin, depth + 1, visited_pins.copy()) if index_pin else span("bp-error", "<?>") # Pass copy
-              options = source_node.get_option_pins()
-              # Show only linked or non-trivial options for brevity
-              option_strs = [f"{span('bp-param-name', f'`{p.name}`')}={self._resolve_pin_value_recursive(p, depth + 1, visited_pins.copy())}" for p in options if p.linked_pins or not self._is_trivial_default(p)] # Pass copy
-              return f"{span('bp-keyword', 'Select')}({span('bp-param-name', 'Index')}={index_str}, {span('bp-param-name', 'Options')}=[{', '.join(option_strs)}])"
+            index_pin = source_node.get_index_pin()
+            index_str = self._resolve_pin_value_recursive(index_pin, depth + 1, visited_pins.copy()) if index_pin else span("bp-error", "<?>") # Pass copy
+            options = source_node.get_option_pins()
+            # Show only linked or non-trivial options for brevity
+            option_strs = [f"{span('bp-param-name', f'`{p.name}`')}={self._resolve_pin_value_recursive(p, depth + 1, visited_pins.copy())}" for p in options if p.linked_pins or not self._is_trivial_default(p)] # Pass copy
+            return f"{span('bp-keyword', 'Select')}({span('bp-param-name', 'Index')}={index_str}, {span('bp-param-name', 'Options')}=[{', '.join(option_strs)}])"
 
         # --- UPDATED MakeStruct ---
         elif isinstance(source_node, K2Node_MakeStruct):
@@ -285,45 +415,35 @@ class DataTracer:
                 struct_type = source_node.struct_type or "Struct"
                 args = []
                 # Include hidden pins potentially, but filter trivial defaults
-                # Use include_hidden=True to catch all struct members if needed, false otherwise
                 for pin in source_node.get_input_pins(exclude_exec=True, include_hidden=True): # Adjust include_hidden as needed
-                    if pin.linked_pins or not self._is_trivial_default(pin):
-                        pin_val = self._resolve_pin_value_recursive(pin, depth + 1, visited_pins.copy()) # Pass copy
-                        # Only add if value isn't considered empty/error after tracing
-                        if pin_val and pin_val != span("bp-info", "(No Default)") and not pin_val.startswith('<span class="bp-error">'):
-                             args.append(f"{span('bp-param-name', f'`{pin.name}`')}={pin_val}")
+                     if pin.linked_pins or not self._is_trivial_default(pin):
+                         pin_val = self._resolve_pin_value_recursive(pin, depth + 1, visited_pins.copy()) # Pass copy
+                         # Only add if value isn't considered empty/error after tracing
+                         if pin_val and pin_val != span("bp-info", "(No Default)") and not pin_val.startswith('<span class="bp-error">'):
+                              args.append(f"{span('bp-param-name', f'`{pin.name}`')}={pin_val}")
                 args_str = ", ".join(args)
                 return f"{span('bp-keyword', 'Make')}<{span('bp-data-type', f'`{struct_type}`')}>({args_str})"
             else:
                  return f"{span('bp-info', 'ValueFrom')}({span('bp-node-type', 'MakeStruct')}.{span('bp-pin-name', f'`{source_pin.name}`')})"
-        # --- END MakeStruct Update ---
 
         elif isinstance(source_node, K2Node_BreakStruct):
-              input_pin = source_node.get_input_struct_pin()
-              input_str = self._resolve_pin_value_recursive(input_pin, depth + 1, visited_pins.copy()) if input_pin else span("bp-error", "<?>") # Pass copy
-              member_name = source_pin.name or "UnknownMember"
-              # Only use dot notation if the input is clearly a simple variable
-              if re.match(r'^<span class="bp-var">`[a-zA-Z0-9_]+`</span>$', input_str):
-                   return f"{input_str}.{span('bp-pin-name', f'`{member_name}`')}"
-              else:
-                   return f"({input_str}).{span('bp-pin-name', f'`{member_name}`')}"
-        elif isinstance(source_node, K2Node_MakeArray):
-            item_pins = source_node.get_item_pins()
-            item_strs = [self._resolve_pin_value_recursive(p, depth + 1, visited_pins.copy()) for p in item_pins] # Pass copy
-            return f"{span('bp-literal-container', '[')}{', '.join(item_strs)}{span('bp-literal-container', ']')}"
+            input_pin = source_node.get_input_struct_pin()
+            input_str = self._resolve_pin_value_recursive(input_pin, depth + 1, visited_pins.copy()) if input_pin else span("bp-error", "<?>") # Pass copy
+            member_name = source_pin.name or "UnknownMember"
+            # Only use dot notation if the input is clearly a simple variable
+            if re.match(r'^<span class="bp-var">`[a-zA-Z0-9_]+`</span>$', input_str):
+                 return f"{input_str}.{span('bp-pin-name', f'`{member_name}`')}"
+            else:
+                 return f"({input_str}).{span('bp-pin-name', f'`{member_name}`')}"
+
         elif isinstance(source_node, K2Node_MakeMap):
             item_pairs = source_node.get_item_pins()
             pair_strs = [f"{self._resolve_pin_value_recursive(k, depth + 1, visited_pins.copy())} {span('bp-operator', ':')} {self._resolve_pin_value_recursive(v, depth + 1, visited_pins.copy())}" for k,v in item_pairs] # Pass copy
             return f"{span('bp-literal-container', '{')}{', '.join(pair_strs)}{span('bp-literal-container', '}')}"
-        elif isinstance(source_node, K2Node_GetArrayItem):
-            array_pin = source_node.get_target_pin()
-            index_pin = source_node.get_index_pin()
-            array_str = self._resolve_pin_value_recursive(array_pin, depth + 1, visited_pins.copy()) if array_pin else span("bp-error", "<?>") # Pass copy
-            index_str = self._resolve_pin_value_recursive(index_pin, depth + 1, visited_pins.copy()) if index_pin else span("bp-error", "<?>") # Pass copy
-            if re.match(r'^<span class="bp-var">`[a-zA-Z0-9_]+`</span>$', array_str):
-                 return f"{array_str}{span('bp-operator', '[')}{index_str}{span('bp-operator', ']')}"
-            else:
-                 return f"({array_str}){span('bp-operator', '[')}{index_str}{span('bp-operator', ']')}"
+
+        # elif isinstance(source_node, K2Node_GetArrayItem): # Already handled above
+        #     pass
+
         elif isinstance(source_node, K2Node_CreateDelegate):
             func_name_pin = source_node.get_function_name_pin()
             # Pass copy when resolving pins
@@ -331,17 +451,16 @@ class DataTracer:
             obj_pin = source_node.get_object_pin()
             obj_str = self._resolve_pin_value_recursive(obj_pin, depth + 1, visited_pins.copy()) if obj_pin else span("bp-var", "`self`")
             return f"{span('bp-keyword', 'Delegate')}({func_name_str} {span('bp-keyword', 'on')} {obj_str})"
+
         elif source_node.ue_class == "/Script/BlueprintGraph.K2Node_Self":
             return span("bp-var", "`self`")
-        elif source_node.ue_class == "/Script/BlueprintGraph.K2Node_Literal":
-            output_pin = next((p for p in source_node.pins.values() if p.is_output()), None)
-            if output_pin and output_pin.default_value is not None:
-                 return self._format_literal_value(output_pin, output_pin.default_value)
-            else:
-                 return span("bp-error", "[Literal?]")
+
+        # elif source_node.ue_class == "/Script/BlueprintGraph.K2Node_Literal": # Instance check K2Node_Literal preferred
+        #     pass
 
         # --- Fallback for other unhandled nodes ---
         else:
+            # Try formatting via NodeFormatter for a general description
             formatter_desc, _ = self.node_formatter.format_node(source_node, "", set()) # Use empty prefix/visited for description
             if formatter_desc:
                  action_part = formatter_desc.split("-->")[-1].strip() # Get part after arrow if exists
@@ -349,21 +468,29 @@ class DataTracer:
                  action_part = action_part.replace("**", "").replace("`", "") # Clean up markdown
                  action_part = re.sub(r'<[^>]+>', '', action_part) # Strip remaining HTML spans
                  pin_name_str = f".{span('bp-pin-name', f'`{source_pin.name}`')}" if source_pin.name and source_pin.name != "ReturnValue" else ""
-                 return f"{span('bp-info', 'ResultOf')}({span('bp-generic-node', action_part)}){pin_name_str}"
+                 # Avoid overly verbose fallback if it's just the node type
+                 if action_part.lower() == source_node.node_type.lower():
+                      return f"{span('bp-info', 'ValueFrom')}({span('bp-node-type', f'`{source_node.node_type}`')}.{span('bp-pin-name', f'`{source_pin.name}`')})"
+                 else:
+                      return f"{span('bp-info', 'ResultOf')}({span('bp-generic-node', action_part)}){pin_name_str}"
             else:
                  # Ultimate fallback if node formatting fails
                  return f"{span('bp-info', 'ValueFrom')}({span('bp-node-type', f'`{source_node.node_type}`')}.{span('bp-pin-name', f'`{source_pin.name}`')})"
 
         # This line should ideally not be reached if all cases are handled
-        return span("bp-error", f"[Unhandled Node Type Fallback: {source_node.node_type}]") # Ensure fallback returns error
+        return span("bp-error", f"[Unhandled Node Type Fallback: {source_node.node_type}]")
 
+    # --- MODIFIED: Use Symbols ---
     def _format_operator(self, node: Node, output_pin: Pin, depth: int, visited_pins: Set[str]) -> str:
-        op_name = getattr(node, 'operation_name', 'Op')
+        """Formats promotable/commutative operators symbolically."""
+        # Get operation name (can be function_name for some nodes)
+        op_name = getattr(node, 'operation_name', None) or getattr(node, 'function_name', 'Op')
         symbol = self.MATH_OPERATORS.get(op_name)
         inputs = node.get_input_pins(exclude_exec=True, include_hidden=False)
-        # Sort inputs deterministically, placing standard A,B,C first might be good
+        # Sort inputs deterministically (e.g., A, B, C...)
         inputs.sort(key=lambda p: (0 if p.name in ['A', 'B', 'C', 'D', 'E', 'Index'] else 1, p.name or ""))
-        input_vals = [self._resolve_pin_value_recursive(p, depth + 1, visited_pins.copy()) for p in inputs] # Pass copy
+        # Pass copy for recursive calls
+        input_vals = [self._resolve_pin_value_recursive(p, depth + 1, visited_pins.copy()) for p in inputs]
 
         if symbol and len(input_vals) == 2:
             # Basic infix formatting
@@ -371,43 +498,69 @@ class DataTracer:
         elif symbol and len(input_vals) == 1:
              # Handle unary operators like NOT
              if op_name == "BooleanNOT":
-                  return f"{span('bp-keyword', 'NOT')} ({input_vals[0]})"
-             # Add other unary operators if needed
-        elif op_name in self.TYPE_CONVERSIONS and len(input_vals) == 1:
-            # Handle explicit type conversions
-            target_type = self.TYPE_CONVERSIONS[op_name]
-            return f"{span('bp-data-type', target_type)}({input_vals[0]})"
-        elif op_name == "SelectFloat" and len(inputs) == 3: # Example specific handling
-             a_pin = node.get_pin("A")
-             b_pin = node.get_pin("B")
-             pick_a_pin = node.get_pin("Pick A") or node.get_pin("PickA")
-             # Pass copy when resolving
-             a_val = self._resolve_pin_value_recursive(a_pin, depth + 1, visited_pins.copy()) if a_pin else span("bp-error", "??")
-             b_val = self._resolve_pin_value_recursive(b_pin, depth + 1, visited_pins.copy()) if b_pin else span("bp-error", "??")
-             cond_val = self._resolve_pin_value_recursive(pick_a_pin, depth + 1, visited_pins.copy()) if pick_a_pin else span("bp-error", "???")
-             return f"({cond_val} {span('bp-operator', '?')} {a_val} {span('bp-operator', ':')} {b_val})"
-        elif op_name == "Concat_StrStr" and len(input_vals) >= 2:
-            return f" {span('bp-operator', '+')} ".join(input_vals)
-        elif op_name == "Lerp" and len(inputs) == 3:
-             args = {p.name: self._resolve_pin_value_recursive(p, depth + 1, visited_pins.copy()) for p in inputs} # Pass copy
-             a_val = args.get("A", span("bp-error", "??"))
-             b_val = args.get("B", span("bp-error", "??"))
-             alpha_val = args.get("Alpha", span("bp-error", "??"))
-             return f"{span('bp-func-name', 'Lerp')}({a_val}, {b_val}, {span('bp-param-name', 'Alpha')}={alpha_val})"
-        elif op_name in ["FInterpTo", "VInterpTo", "RInterpTo"] and len(inputs) >= 4:
-             args = {p.name: self._resolve_pin_value_recursive(p, depth + 1, visited_pins.copy()) for p in inputs} # Pass copy
-             current = args.get("Current", span("bp-error", "??"))
-             target_val = args.get("Target", span("bp-error", "??"))
-             delta = args.get("DeltaTime", span("bp-error", "??"))
-             speed = args.get("InterpSpeed", span("bp-error", "??"))
-             return f"{span('bp-func-name', 'InterpTo')}({span('bp-param-name', 'Current')}={current}, {span('bp-param-name', 'Target')}={target_val}, {span('bp-param-name', 'DeltaTime')}={delta}, {span('bp-param-name', 'Speed')}={speed})"
-
-        # Default fallback for other operators
+                 return f"{span('bp-keyword', 'NOT')} ({input_vals[0]})"
+             # Add other unary math symbols if needed (e.g., Abs, Negate)
+             # Fallback to func name for unary ops without a dedicated symbol
+             return f"{span('bp-func-name', op_name)}({input_vals[0]})"
+        # --- Remove specific SelectFloat, Lerp, Interp, Concat logic here - handled by pure function or dedicated node types ---
+        # Fallback for other operators not mapped to symbols or with != 1 or 2 inputs
         return f"{span('bp-func-name', op_name)}({', '.join(input_vals)})"
 
+    # --- NEW: Format Conversion ---
+    def _format_conversion(self, node: Node, output_pin: Pin, depth: int, visited_pins: Set[str]) -> str:
+         """Formats type conversion nodes."""
+         # Get function/operation name that matched the conversion lookup
+         func_name = getattr(node, 'function_name', None) or getattr(node, 'operation_name', 'Conv')
+         # Handle potential normalized names used in the lookup
+         normalized_func_name = func_name
+         if func_name and func_name.startswith("To") and " (" in func_name:
+              match = re.match(r"^(.*?)\s*\((.*?)\)$", func_name)
+              if match:
+                  base_func, input_type = match.groups()
+                  conv_key = f"Conv_{input_type.replace(' ', '')}To{base_func}"
+                  if conv_key in self.TYPE_CONVERSIONS: normalized_func_name = conv_key
+                  elif func_name in self.TYPE_CONVERSIONS: normalized_func_name = func_name
+         elif func_name in self.TYPE_CONVERSIONS:
+             normalized_func_name = func_name
+
+
+         target_type = self.TYPE_CONVERSIONS.get(normalized_func_name, "UnknownType")
+
+         # Find the single primary input data pin (heuristic: first non-exec input)
+         input_pin = next((p for p in node.get_input_pins(exclude_exec=True, include_hidden=False)), None)
+         # Fallback if heuristic fails (e.g., pin named 'Input Pin')
+         if not input_pin and hasattr(node, 'get_pin'):
+              input_pin = node.get_pin("Input Pin") or node.get_pin("Value") # Common names
+
+         # Pass copy for recursive calls
+         input_val_str = self._resolve_pin_value_recursive(input_pin, depth + 1, visited_pins.copy()) if input_pin else span("bp-error", "<?>")
+
+         # Format as Type(Value)
+         return f"{span('bp-data-type', target_type)}({input_val_str})"
+    # --- END NEW ---
+
+    # --- (Keep _format_pure_function_call, _format_pure_macro_call) ---
+    # Make sure _format_pure_function_call handles math functions that *weren't* caught by _format_operator
     def _format_pure_function_call(self, node: K2Node_CallFunction, output_pin: Pin, depth: int, visited_pins: Set[str]) -> str:
         """Formats pure K2Node_CallFunction symbolically."""
+        # Check if it should have been handled as a conversion first
         func_name = node.function_name or 'PureFunc'
+        # Handle normalization for lookup (redundant check, but safe)
+        normalized_func_name = func_name
+        if func_name and func_name.startswith("To") and " (" in func_name:
+             match = re.match(r"^(.*?)\s*\((.*?)\)$", func_name)
+             if match:
+                 base_func, input_type = match.groups()
+                 conv_key = f"Conv_{input_type.replace(' ', '')}To{base_func}"
+                 if conv_key in self.TYPE_CONVERSIONS: normalized_func_name = conv_key
+                 elif func_name in self.TYPE_CONVERSIONS: normalized_func_name = func_name
+        elif func_name in self.TYPE_CONVERSIONS:
+             normalized_func_name = func_name
+
+        if normalized_func_name in self.TYPE_CONVERSIONS:
+             # Should have been caught earlier, but handle defensively
+             return self._format_conversion(node, output_pin, depth, visited_pins.copy())
+
         target_pin = node.get_target_pin()
 
         # --- Specific Function Handling for MakeLiteralGameplayTagContainer ---
@@ -434,71 +587,104 @@ class DataTracer:
                  return f"{span('bp-func-name', 'MakeLiteralTagContainer')}({span('bp-param-name', 'Value')}={tag_value_str})"
         # --- END SPECIFIC ---
 
+        # --- Handle common math library functions not covered by operators ---
+        # Example: Lerp (often a pure function)
+        if func_name == "Lerp" and len(node.get_input_pins(exclude_exec=True)) == 3:
+             a_pin = node.get_pin("A")
+             b_pin = node.get_pin("B")
+             alpha_pin = node.get_pin("Alpha")
+             # Pass copy for recursive calls
+             a_val = self._resolve_pin_value_recursive(a_pin, depth + 1, visited_pins.copy()) if a_pin else span("bp-error", "??")
+             b_val = self._resolve_pin_value_recursive(b_pin, depth + 1, visited_pins.copy()) if b_pin else span("bp-error", "??")
+             alpha_val = self._resolve_pin_value_recursive(alpha_pin, depth + 1, visited_pins.copy()) if alpha_pin else span("bp-error", "??")
+             return f"{span('bp-func-name', 'Lerp')}({a_val}, {b_val}, {span('bp-param-name', 'Alpha')}={alpha_val})"
+        # Example: Select Float/String/etc. (often pure functions)
+        if func_name.startswith("Select") and "Pick A" in [p.name for p in node.pins.values()]:
+             a_pin = node.get_pin("A")
+             b_pin = node.get_pin("B")
+             pick_a_pin = node.get_pin("Pick A") or node.get_pin("PickA") # Allow variation
+             # Pass copy for recursive calls
+             a_val = self._resolve_pin_value_recursive(a_pin, depth + 1, visited_pins.copy()) if a_pin else span("bp-error", "??")
+             b_val = self._resolve_pin_value_recursive(b_pin, depth + 1, visited_pins.copy()) if b_pin else span("bp-error", "??")
+             cond_val = self._resolve_pin_value_recursive(pick_a_pin, depth + 1, visited_pins.copy()) if pick_a_pin else span("bp-error", "???")
+             # Use ternary operator style
+             return f"({cond_val} {span('bp-operator', '?')} {a_val} {span('bp-operator', ':')} {b_val})"
+
+        # --- General Pure Function Formatting ---
         # Pass copy when resolving target pin
         target_str_raw = self._resolve_pin_value_recursive(target_pin, depth + 1, visited_pins.copy()) if target_pin else span("bp-var", "`self`")
 
-        args_list = []
-        input_pins = [p for p in node.get_input_pins(exclude_exec=True, include_hidden=False) if p != target_pin]
-        for pin in input_pins:
-            if pin.linked_pins or not self._is_trivial_default(pin):
-                 # Pass copy when resolving argument pins
-                 pin_val = self._resolve_pin_value_recursive(pin, depth + 1, visited_pins.copy())
-                 args_list.append(f"{span('bp-param-name', f'`{pin.name}`')}={pin_val}")
-        args_str = ", ".join(args_list)
+        exclude_pins = {target_pin.name.lower()} if target_pin and target_pin.name else set()
+        args_str = self._format_arguments_for_trace(node, depth + 1, visited_pins.copy(), exclude_pins=exclude_pins)
 
+        # Determine if it's a static call based on target resolution
         is_static_call = False
         # --- ADDED None check ---
         if target_str_raw:
-            match = re.match(r'^<span class="bp-(?:var|literal-object)">`([a-zA-Z0-9_]+)`</span>$', target_str_raw)
+            # Check if target looks like a class name or default object, not 'self'
+            match = re.match(r'^<span class="bp-(?:var|literal-object)">`([a-zA-Z0-9_]+)`</span>(?:|::.*)$', target_str_raw)
             if match and match.group(1) != 'self':
-                is_static_call = True
+                 is_static_call = True
+            elif target_str_raw.startswith(span("bp-var", "`Default__")): # Default library object
+                 is_static_call = True # Treat these like static calls for formatting
+
 
         call_prefix = ""
         # --- ADDED None check ---
         if target_str_raw:
             if target_str_raw.startswith(span("bp-var", "`Default__")):
-                call_prefix = "" # Hide default library prefix
+                call_prefix = "" # Hide default library prefix for common functions like KismetMathLibrary
             elif target_str_raw == span("bp-var", "`self`"):
                  call_prefix = "" # Implicit self
             elif is_static_call:
-                 call_prefix = f"{target_str_raw}." # ClassName.
+                 # Extract class name if Default__ prefix exists
+                 class_name_match = re.match(r'^<span class="bp-var">`(?:Default__)?([a-zA-Z0-9_]+)`</span>(?:|::.*)$', target_str_raw)
+                 if class_name_match:
+                     call_prefix = f"{span('bp-class-name', f'`{class_name_match.group(1)}`')}." # Use class name
+                 else:
+                     call_prefix = f"{target_str_raw}." # Fallback: ClassName. or DefaultObject.
             else:
                  # Wrap complex targets
                  if any(sub in target_str_raw for sub in ['bp-operator', 'bp-func-name', 'bp-keyword', '?', '[', '{', '(']):
-                     call_prefix = f"({target_str_raw})."
+                      call_prefix = f"({target_str_raw})."
                  else:
-                     call_prefix = f"{target_str_raw}."
+                      call_prefix = f"{target_str_raw}."
         else: # Handle case where target trace failed
              call_prefix = f"({span('bp-error', '[Invalid Target]')})."
         # --- END ADDED None check ---
 
         func_name_span = span("bp-func-name", f"`{func_name}`")
-        primary_output_pin = node.get_return_value_pin()
+        primary_output_pin = node.get_return_value_pin() # Usually named 'ReturnValue'
         base_call = f"{call_prefix}{func_name_span}({args_str})"
 
-        if output_pin == primary_output_pin or not primary_output_pin:
+        # Check if the pin being traced is the primary return value
+        if output_pin == primary_output_pin or not primary_output_pin or output_pin.name == 'ReturnValue':
             return base_call
         else:
-            # If tracing a secondary output pin of a pure function
+            # If tracing a secondary output pin of a pure function (less common, e.g., a boolean success flag)
             return f"({base_call}).{span('bp-pin-name', f'`{output_pin.name}`')}"
 
+
     def _format_pure_macro_call(self, node: K2Node_MacroInstance, output_pin: Pin, depth: int, visited_pins: Set[str]) -> str:
+        # Similar logic to pure functions, but macros don't have a 'target' in the same way
         macro_name = node.macro_type or "PureMacro"
-        args_list = []
-        input_pins = node.get_input_pins(exclude_exec=True, include_hidden=False)
-        for pin in input_pins:
-            if pin.linked_pins or not self._is_trivial_default(pin):
-                 # Pass copy when resolving pins
-                 pin_val = self._resolve_pin_value_recursive(pin, depth + 1, visited_pins.copy())
-                 args_list.append(f"{span('bp-param-name', f'`{pin.name}`')}={pin_val}")
-        args_str = ", ".join(args_list)
+        macro_name = extract_simple_name_from_path(macro_name) # Clean up path if present
+
+        # Pass copy for recursive calls
+        args_str = self._format_arguments_for_trace(node, depth + 1, visited_pins.copy())
+
+        # Heuristic: find the first non-exec output pin as the "primary"
         primary_output_pin = next((p for p in node.get_output_pins() if not p.is_execution()), None)
         base_call = f"{span('bp-func-name', f'`{macro_name}`')}({args_str})" # Use bp-func-name for macros too
+
         if output_pin == primary_output_pin or not primary_output_pin:
              return base_call
         else:
+             # Append the specific output pin name if it's not the primary one
              return f"({base_call}).{span('bp-pin-name', f'`{output_pin.name}`')}"
 
+
+    # --- (Keep _format_default_value, _format_literal_value, _is_trivial_default, _trace_target_pin) ---
     def _format_default_value(self, pin: Pin) -> str:
         val = pin.default_value; obj = pin.default_object; struct = pin.default_struct
         if val is not None: return self._format_literal_value(pin, val)
@@ -516,7 +702,6 @@ class DataTracer:
         if pin.container_type in ['Array', 'Set', 'Map']: return span("bp-literal-container", "[]" if pin.container_type == 'Array' else "{}")
         return span("bp-info", "(No Default)")
 
-    # --- UPDATED Struct/Tag Handling ---
     def _format_literal_value(self, pin: Pin, val_str: str) -> str:
         """Formats literal values with proper escaping."""
         category = pin.category
@@ -526,22 +711,23 @@ class DataTracer:
         # Handle potential object path strings passed directly
         is_path = '/' in val_str or ':' in val_str or (val_str.startswith("'") and val_str.endswith("'") and len(val_str)>2)
 
-        # Remove double quotes if they exist at start and end, unless it's clearly a path
+        # Remove double quotes if they exist at start and end, unless it's clearly a path or empty string ""
         if len(val_str) >= 2 and not is_path:
             if val_str.startswith('"') and val_str.endswith('"'): val_str = val_str[1:-1]
 
-        # Escape single quotes for display
-        escaped_val_str = val_str.replace("'", r"\'") # Maybe only escape if not path?
+        # Escape backticks within names/strings/paths for display in `` or ''
+        # Basic HTML escaping done by span() helper
+        escaped_val_str = val_str.replace('`', r'\`')
 
         # --- Object/Class Handling ---
         if category in ['object', 'class', 'asset', 'assetclass', 'softobject', 'softclass', 'interface']:
              if is_path:
-                 simple_name = extract_simple_name_from_path(val_str)
+                 simple_name = extract_simple_name_from_path(escaped_val_str)
                  if simple_name: return span("bp-literal-object", f"`{simple_name}`")
-                 else: # Fallback
-                      if val_str.startswith("'") and val_str.endswith("'"): val_str = val_str[1:-1]
-                      return span("bp-literal-object", f"`{val_str}`")
-             elif val_str.lower() == 'none': return span("bp-literal-object", "`None`")
+                 else: # Fallback if path parsing fails
+                     if escaped_val_str.startswith("'") and escaped_val_str.endswith("'"): escaped_val_str = escaped_val_str[1:-1]
+                     return span("bp-literal-object", f"`{escaped_val_str}`")
+             elif escaped_val_str.lower() == 'none': return span("bp-literal-object", "`None`")
              else: return span("bp-literal-object", f"`{escaped_val_str}`")
 
         # --- Bool Handling ---
@@ -551,15 +737,15 @@ class DataTracer:
         if category in ['byte', 'int', 'int64']:
             if sub_category_obj and ('Enum' in sub_category_obj or sub_category_obj.endswith('_UENUM')):
                 enum_type = extract_simple_name_from_path(sub_category_obj) or "Enum"
-                enum_val_str = escaped_val_str.split("::")[-1].split('.')[-1]
+                enum_val_str = escaped_val_str.split("::")[-1].split('.')[-1] # Get value part
                 return f"{span('bp-enum-type', f'`{enum_type}`')}::{span('bp-enum-value', f'`{enum_val_str}`')}"
-            try: return span("bp-literal-number", str(int(float(escaped_val_str))))
+            try: return span("bp-literal-number", str(int(float(escaped_val_str)))) # Use float conversion to handle potential ".0"
             except (ValueError, TypeError): return span("bp-literal-unknown", escaped_val_str)
         if category in ['real', 'float', 'double']:
             try:
                 num_val = float(escaped_val_str)
                 if num_val.is_integer(): return span("bp-literal-number", str(int(num_val)))
-                formatted = f"{num_val:.4f}".rstrip('0').rstrip('.')
+                formatted = f"{num_val:.4f}".rstrip('0').rstrip('.') # Format nicely, remove trailing zeros
                 return span("bp-literal-number", formatted if formatted and formatted != '-' else '0.0')
             except (ValueError, TypeError): return span("bp-literal-unknown", escaped_val_str)
 
@@ -571,7 +757,7 @@ class DataTracer:
         if category == 'struct':
             struct_name = extract_simple_name_from_path(sub_category_obj) if sub_category_obj else "Struct"
             # Use the utility function to parse simple defaults
-            parsed_default = parse_struct_default_value(val_str)
+            parsed_default = parse_struct_default_value(val_str) # Use original val_str for parsing
 
             if parsed_default:
                 # Specific logic for GameplayTag based on parsed content or type name
@@ -583,29 +769,46 @@ class DataTracer:
                     tag_match = re.match(r'\(?\s*TagName\s*=\s*"?`?([^"`]+)`?"?\s*\)?', tag_name, re.IGNORECASE)
                     if tag_match:
                         tag_name = tag_match.group(1)
-                    # Handle cases where parse_struct_default_value might just return the tag name directly if simple enough
+                    # Handle cases where parse_struct_default_value might just return the tag name directly
                     elif not tag_name.startswith('('):
-                         pass # Assume it's already the tag name
+                        pass # Assume it's already the tag name
+
+                    # Cleanup backtick escapes if present
+                    tag_name = tag_name.replace(r'\`', '`')
 
                     if tag_name.lower() == 'none' or not tag_name or tag_name == '""':
-                        return span("bp-literal-tag", '``') # Represent empty tag
+                         return span("bp-literal-tag", '``') # Represent empty tag
                     else:
-                        return span("bp-literal-tag", f'`{tag_name}`')
+                         return span("bp-literal-tag", f'`{tag_name}`') # Use backticks for tag names
 
                 # Special formatting for GameplayTagContainer (show count or ...)
                 elif struct_name == "GameplayTagContainer" and isinstance(parsed_default, str):
                     tag_matches = re.findall(r'TagName\s*=\s*"?`?([^"`]+)`?"?', parsed_default, re.IGNORECASE)
-                    valid_tags = [t for t in tag_matches if t.lower() != 'none' and t and t != '""']
+                    valid_tags = [t.replace(r'\`','`') for t in tag_matches if t.lower() != 'none' and t and t != '""']
                     if not valid_tags:
-                        return f"{span('bp-literal-struct-type', '`0`')} {span('bp-info','Tags')}"
+                         return f"{span('bp-literal-struct-type', '`0`')} {span('bp-info','Tags')}"
                     elif len(valid_tags) <= 3:
-                        tags_str = ', '.join([span('bp-literal-tag', f'`{t}`') for t in valid_tags])
-                        return f"{span('bp-literal-struct-type', '`{len(valid_tags)}`')} {span('bp-info','Tags')}({tags_str})"
+                         tags_str = ', '.join([span('bp-literal-tag', f'`{t}`') for t in valid_tags])
+                         return f"{span('bp-literal-struct-type', '`{len(valid_tags)}`')} {span('bp-info','Tags')}({tags_str})"
                     else:
                          return f"{span('bp-literal-struct-type', '`{len(valid_tags)}`')} {span('bp-info','Tags')}({span('bp-literal-tag', f'`{valid_tags[0]}`')}, ...)"
 
-                else: # General struct formatting
+                else: # General struct formatting using the parsed value
                      parsed_default_escaped = str(parsed_default).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                     # Basic heuristic to simplify common zero vectors/rotators
+                     if struct_name in ["Vector", "Rotator"] and isinstance(parsed_default, str):
+                         is_zero = True
+                         components = parsed_default.strip('() ').split(',')
+                         if not components or not components[0]: is_zero = False # Empty or invalid
+                         for comp in components:
+                             try:
+                                 key_val = comp.split('=')
+                                 if len(key_val) == 2 and float(key_val[1].strip()) != 0.0:
+                                     is_zero = False
+                                     break
+                             except: is_zero = False; break
+                         if is_zero: parsed_default_escaped = "()" # Simplify to empty parens
+
                      return f"{span('bp-literal-struct-type', f'`{struct_name}`')}({span('bp-literal-struct-val', parsed_default_escaped)})"
             else: # Fallback for complex/unparsed structs
                  return f"{span('bp-literal-struct-type', f'`{struct_name}`')}({span('bp-literal-unknown', '...')})"
@@ -627,14 +830,15 @@ class DataTracer:
              # If default matches autogen for other simple types, consider it trivial
              if pin.category not in ['name', 'bool', 'struct', 'object', 'class', 'interface', 'asset', 'assetclass', 'softobject', 'softclass']:
                  try: # Check numeric zero
-                    if float(val_str) == 0.0: return True
+                     if float(val_str) == 0.0: return True
                  except: pass
                  if val_str == '': return True # Empty string
-                 return True # Assume other matches are trivial
+                 # Assume other exact matches to autogen are trivial defaults
+                 return True
 
         # Standard checks
         if val is None and obj is None and struct is None: return True
-        if obj_str in ['none', 'null', 'nullptr']: return True
+        if obj_str in ['none', 'null', 'nullptr', '']: return True # Empty object string is also none
 
         # Numeric/Bool/String checks
         if pin.category in ['byte', 'int', 'int64', 'real', 'float', 'double']:
@@ -651,28 +855,31 @@ class DataTracer:
             if raw_struct_val == '()' or raw_struct_val == '{}' or raw_struct_val == '': return True
             parsed_simple_default = parse_struct_default_value(raw_struct_val)
             if parsed_simple_default:
-                if parsed_simple_default == "()": return True
-                if isinstance(parsed_simple_default, str):
-                    # Check for zero vector/rotator patterns more robustly
-                    components = parsed_simple_default.strip('() ').split(',')
-                    all_zero = True
-                    for comp in components:
-                        comp = comp.strip()
-                        if not comp: continue
-                        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*(?:0(?:.0)?|false|""|``)$', comp, re.IGNORECASE):
-                             # Check for empty tag name specifically
-                            if not re.match(r'^TagName\s*=\s*(""|``|none)$', comp, re.IGNORECASE):
-                                all_zero = False
-                                break
-                    if all_zero and components: return True
+                 if parsed_simple_default == "()": return True
+                 if isinstance(parsed_simple_default, str):
+                     # Check for zero vector/rotator patterns more robustly
+                     components = parsed_simple_default.strip('() ').split(',')
+                     all_zero = True
+                     if not components or not components[0]: all_zero = False # Empty struct string isn't zero
+                     for comp in components:
+                         comp = comp.strip()
+                         if not comp: continue
+                         # Match pattern like "X=0.0" or "TagName=``"
+                         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*=\s*(?:0(?:.0)?|false|""|``|none)$', comp, re.IGNORECASE):
+                              # Check specifically for empty TagName (None or "")
+                              if not re.match(r'^TagName\s*=\s*(?:""|``|none)$', comp, re.IGNORECASE):
+                                   all_zero = False
+                                   break
+                     if all_zero and components and components[0]: return True # Must have at least one component to be zero
 
-                # Check for empty GameplayTag via name or value
-                struct_name = extract_simple_name_from_path(pin.sub_category_object) if pin.sub_category_object else ""
-                if struct_name == "GameplayTag" and isinstance(parsed_simple_default, str):
-                    if '(TagName="")' in parsed_simple_default.replace(" ","") or '(TagName=``)' in parsed_simple_default.replace(" ",""): return True
-                # Check for empty GameplayTagContainer
-                if struct_name == "GameplayTagContainer" and isinstance(parsed_simple_default, str):
-                     if not re.search(r'TagName\s*=\s*"?`?[^"`None\s]+`?"?', parsed_simple_default, re.IGNORECASE): return True # No non-empty TagName found
+                 # Check for empty GameplayTag via name or value
+                 struct_name = extract_simple_name_from_path(pin.sub_category_object) if pin.sub_category_object else ""
+                 if struct_name == "GameplayTag" and isinstance(parsed_simple_default, str):
+                     if '(TagName="")' in parsed_simple_default.replace(" ","") or '(TagName=``)' in parsed_simple_default.replace(" ","") or '(TagName=None)' in parsed_simple_default.replace(" ","") or parsed_simple_default.lower() == 'none': return True
+                 # Check for empty GameplayTagContainer
+                 if struct_name == "GameplayTagContainer" and isinstance(parsed_simple_default, str):
+                      # Check if it contains ANY non-empty TagName definition
+                      if not re.search(r'TagName\s*=\s*"?`?(?!none|""|``)[^"`]+`?"?', parsed_simple_default, re.IGNORECASE): return True # No non-empty TagName found
 
         # Container checks
         if pin.container_type in ["Array", "Set", "Map"] and val_str in ['()', '']: return True
@@ -682,35 +889,64 @@ class DataTracer:
     def _trace_target_pin(self, target_pin: Optional[Pin], visited_pins: Set[str]) -> str:
         """Traces the target pin, returning `self`, `ClassName::Default`, `PlayerController`, or a resolved value."""
         if not target_pin: return span("bp-var", "`self`")
-        if not target_pin.linked_pins: return span("bp-var", "`self`") # Default is self
+        if not target_pin.linked_pins:
+             # Check if target pin *itself* has a default object specified (less common)
+             if target_pin.default_object and target_pin.default_object.lower() != 'none':
+                  return self._format_literal_value(target_pin, target_pin.default_object)
+             return span("bp-var", "`self`") # Default is self if unlinked and no default obj
 
         # --- Check the SOURCE of the value for the target pin ---
         source_pin = target_pin.linked_pins[0]
         source_node = self.parser.get_node_by_guid(source_pin.node_guid)
 
         if source_node:
-            # Handle specific source nodes
+            # Handle specific source nodes that provide common targets
             if isinstance(source_node, K2Node_GetClassDefaults):
                 # Check if the source pin is one of the outputs (not 'self')
                 if source_pin in source_node.get_output_pins():
-                    class_name = source_node.get_target_class_name() or "UnknownClass"
-                    return f"{span('bp-var', f'`{class_name}`')}::{span('bp-keyword', 'Default')}"
+                     class_name = source_node.get_target_class_name() or "UnknownClass"
+                     return f"{span('bp-var', f'`{class_name}`')}::{span('bp-keyword', 'Default')}"
             elif isinstance(source_node, K2Node_CallFunction) and source_node.function_name == "GetPlayerController":
-                if source_pin == source_node.get_return_value_pin():
-                     return span("bp-var", "`PlayerController`")
+                 if source_pin == source_node.get_return_value_pin():
+                      return span("bp-var", "`PlayerController`")
             elif source_node.ue_class == "/Script/BlueprintGraph.K2Node_Self":
                  return span("bp-var", "`self`")
             # Add more special cases if needed (e.g., GetGameInstance?)
 
         # --- Fallback: Recursively trace the target pin normally ---
-        target_value_str = self._resolve_pin_value_recursive(target_pin, depth=0, visited_pins=visited_pins.copy()) # Pass copy
+        # Pass copy for recursive calls
+        target_value_str = self._resolve_pin_value_recursive(target_pin, depth=0, visited_pins=visited_pins.copy())
 
-        # Post-processing checks (keep existing)
+        # Post-processing checks (simplify common patterns)
         if target_value_str == span("bp-var", "`self`"): return span("bp-var", "`self`")
         if target_value_str == span("bp-var", "`PlayerController`"): return span("bp-var", "`PlayerController`")
+        # Check for ClassName::Default pattern
         match_class_default = re.match(r'^(<span class="bp-var">`[a-zA-Z0-9_]+`</span>)::(<span class="bp-keyword">Default</span>)', target_value_str)
         if match_class_default: return target_value_str
 
         return target_value_str
+
+    # --- NEW HELPER (Optional): Format args specifically for trace output ---
+    def _format_arguments_for_trace(self, node: Node, depth: int, visited_pins: Set[str], exclude_pins: Optional[Set[str]] = None) -> str:
+         """Formats arguments for internal use in tracing, e.g., for array/pure functions."""
+         if exclude_pins is None: exclude_pins = set()
+         args_list = []
+         # Common implicit pins to exclude from explicit argument lists
+         implicit_pins = {'self', 'target', 'worldcontextobject', '__worldcontext', 'latentinfo', 'exec'}
+         # Also exclude common output pin names that might appear as inputs in edge cases
+         implicit_pins.update({'returnvalue', 'then'})
+         exclude_pins.update(implicit_pins)
+
+         # Get visible, non-excluded input data pins
+         input_pins = [p for p in node.get_input_pins(exclude_exec=True, include_hidden=False) if p.name and p.name.lower() not in exclude_pins]
+
+         for pin in input_pins:
+             # Trace only if linked or non-trivial default
+             if pin.linked_pins or not self._is_trivial_default(pin):
+                 # Pass copy for recursive calls
+                 pin_val = self._resolve_pin_value_recursive(pin, depth, visited_pins.copy()) # Use current depth for args
+                 args_list.append(f"{span('bp-param-name', f'`{pin.name}`')}={pin_val}")
+
+         return ", ".join(args_list)
 
 # --- END OF FILE blueprint_parser/formatter/data_tracer.py ---
