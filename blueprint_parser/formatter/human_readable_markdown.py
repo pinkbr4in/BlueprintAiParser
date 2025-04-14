@@ -5,7 +5,7 @@ import sys
 from datetime import datetime
 from typing import Dict, Optional, Set, Any, List
 
-# Ensure necessary imports from the package are present
+# --- Use relative imports ---
 from ..parser import BlueprintParser
 from ..nodes import (
     Node, EdGraphNode_Comment, K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction,
@@ -15,15 +15,13 @@ from ..nodes import (
 )
 # Import BaseFormatter from the correct relative path
 from .formatter import BaseFormatter
+# --- CORRECTED IMPORT PATH for strip_html_tags ---
+# Use '..' to go up one directory level from 'formatter' to 'blueprint_parser'
+from ..utils import strip_html_tags
+# --- END CORRECTION ---
 
-# --- Helper Function to Strip HTML ---
-def strip_html_tags(html_string):
-    """Removes HTML tags from a string."""
-    if not isinstance(html_string, str):
-        return str(html_string) # Return string representation of non-strings
-    # Regex to remove anything that looks like an HTML tag <...>
-    return re.sub(r'<[^>]+>', '', html_string)
-# ------------------------------------
+# --- REMOVED Local Definition (now imported correctly) ---
+# def strip_html_tags(html_string): ...
 
 class EnhancedMarkdownFormatter(BaseFormatter):
     """Formats blueprint data into enhanced human-readable Markdown using tree structure."""
@@ -57,7 +55,8 @@ class EnhancedMarkdownFormatter(BaseFormatter):
             self.data_tracer.clear_cache()
         else:
              # Fallback or warning if data_tracer wasn't initialized properly (shouldn't happen with BaseFormatter structure)
-             print("Warning: Data tracer not available for cache clear.", file=sys.stderr)
+             # Use slightly more specific warning message
+             print("Warning (EnhancedMarkdownFormatter): Data tracer not available for cache clear.", file=sys.stderr)
 
         processed_globally = set()  # Track nodes processed across all paths
 
@@ -77,10 +76,10 @@ class EnhancedMarkdownFormatter(BaseFormatter):
             for i, start_node in enumerate(start_nodes):
                 entry_point_id = f"entry-point-{i+1}"
                 # node_formatter generates descriptions WITH spans
-                start_node_header_desc = self.node_formatter._get_formatter_func(start_node)(start_node, set())
-                # Clean up bolding specifically for the header text
-                start_node_header_desc = start_node_header_desc.replace("**Event**", "Event").replace("**Custom Event**", "Custom Event").replace("**Function Entry**", "Function Entry").replace("**Input Action**", "Input Action")
-                output_lines.append(f"### {start_node_header_desc} <a id=\"{entry_point_id}\"></a>") # Header keeps spans
+                start_node_header_desc_with_spans = self.node_formatter._get_formatter_func(start_node)(start_node, set())
+                # Clean up common bolding and add line break before args specifically for the header text
+                start_node_header_text = start_node_header_desc_with_spans.replace("**Event**", "Event").replace("**Custom Event**", "Custom Event").replace("**Function Entry**", "Function Entry").replace("**Input Action**", "Input Action").replace("Args:", "<br>Args:") # Add line break before args
+                output_lines.append(f"### {start_node_header_text} <a id=\"{entry_point_id}\"></a>") # Header keeps spans
                 output_lines.append("```blueprint") # Start code block where spans are needed
                 path_specific_visited = set()
                 if not start_node.is_pure():
@@ -98,7 +97,7 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 output_lines.append("\n---\n") # Separator
 
         # --- Summaries Section ---
-        # Call extraction functions which STRIP HTML internally now
+        # Call extraction functions which STRIP HTML internally now (using imported helper)
         all_variable_ops = self.extract_variable_operations(processed_globally)
         all_function_calls = self.extract_function_calls(processed_globally)
 
@@ -117,6 +116,7 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 formatted_values = []
                 for v in unique_values:
                     v_stripped = v.strip()
+                    # Apply backticks unless it's complex, error, result, etc.
                     if any(c in v_stripped for c in ' ()+-*/%') or v_stripped == '<?>' or '[Error]' in v_stripped or v_stripped.startswith('ResultOf'):
                          formatted_values.append(v_stripped)
                     else:
@@ -152,14 +152,15 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 formatted_params = []
                 for p, v in sorted(params.items()):
                      v_stripped = v.strip()
+                     # Apply backticks unless it's complex, error, result, default object etc.
                      if any(c in v_stripped for c in ' ()+-*/%') or v_stripped == '<?>' or '[Error]' in v_stripped or v_stripped.startswith('ResultOf') or v_stripped.startswith('Default__'):
                           formatted_params.append(f"{p}={v_stripped}")
                      else:
                           formatted_params.append(f"{p}=`{v_stripped}`")
                 param_str = ", ".join(formatted_params) if formatted_params else "-"
 
-                # Format target (smart backticks)
-                target_for_table = f"`{target_plain}`" if not any(c in target_plain for c in ' ()+-*/%') and target_plain != 'self' else target_plain
+                # Format target (smart backticks) - Apply unless complex or 'self'
+                target_for_table = f"`{target_plain}`" if not any(c in target_plain for c in ' ()+-*/%') and target_plain != 'self' and not target_plain.startswith('ResultOf') else target_plain
 
                 latent_str = "Yes" if call.get('is_latent', False) else "No"
 
@@ -168,36 +169,46 @@ class EnhancedMarkdownFormatter(BaseFormatter):
 
             output_lines.append("\n---\n")
 
-        # --- Unconnected Executable Nodes Section (Unchanged - uses node_formatter with spans) ---
+        # --- Unconnected Executable Nodes Section ---
         all_parsed_non_comment_guids = {n.guid for n in self.parser.nodes.values()
                                          if not isinstance(n, EdGraphNode_Comment)}
         untouched_guids = all_parsed_non_comment_guids - processed_globally
         unconnected_executable_nodes = []
         if untouched_guids:
+             # Refined logic to find unconnected nodes
              for guid in sorted(list(untouched_guids)):
                 node = self.parser.get_node_by_guid(guid)
+                # Include only if it's executable and looks like a start point (or is simply unreached)
                 if node and not node.is_pure():
                     input_exec_pin = node.get_execution_input_pin()
+                    # Check if it's a typical start node type OR if it simply has no incoming execution
                     is_potential_start = isinstance(node, (K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey, K2Node_FunctionEntry))
-                    if (input_exec_pin and not input_exec_pin.source_pin_for) or \
-                       (is_potential_start and (not input_exec_pin or not input_exec_pin.source_pin_for)):
-                           unconnected_executable_nodes.append(node)
+                    # Condition updated as per target code
+                    if (not input_exec_pin) or (not input_exec_pin.source_pin_for) or is_potential_start:
+                        unconnected_executable_nodes.append(node)
 
         if unconnected_executable_nodes:
             output_lines.append("## Unconnected Executable Blocks")
             output_lines.append("*(Found executable nodes/sequences not reached by main entry points)*")
             output_lines.append("")
             for node in unconnected_executable_nodes:
-                # This call correctly gets the description WITH spans
-                node_desc_str = self.node_formatter._get_formatter_func(node)(node, set())
-                output_lines.append(f"- {node_desc_str}") # Output keeps spans
+                # --- MODIFIED: Get description WITH spans, then STRIP HTML for list output ---
+                # Get description WITH spans using format_node (might return None if formatter fails)
+                # Use format_node which often returns the string and a boolean (is_pure)
+                format_result = self.node_formatter.format_node(node, "", set())
+                node_desc_with_spans = format_result[0] if isinstance(format_result, tuple) and len(format_result) > 0 else (format_result if isinstance(format_result, str) else None)
+
+                # Strip HTML for the list representation
+                node_desc_plain = strip_html_tags(node_desc_with_spans) if node_desc_with_spans else f"[Could not format node {node.guid[:4]}]"
+                output_lines.append(f"- {node_desc_plain}") # Use plain text in the list
+                # --- END MODIFICATION ---
             output_lines.append("\n---\n")
 
         # --- Final Join ---
         final_output_string = '\n'.join(output_lines)
         return final_output_string
 
-    # --- extract_variable_operations (MODIFIED - USES HELPER) ---
+    # --- extract_variable_operations (Uses imported strip_html_tags) ---
     def extract_variable_operations(self, processed_nodes_guids: Set[str]) -> Dict[str, Dict]:
         """Extracts variable operations, storing PLAIN TEXT values."""
         variables = {}
@@ -207,8 +218,8 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 var_name = node.variable_name
                 value_pin = node.get_value_input_pin()
                 value_str_with_spans = self.data_tracer.trace_pin_value(value_pin, visited_pins=set()) if value_pin else "<?>"
-                # STRIP the spans for storage
-                plain_value_str = strip_html_tags(value_str_with_spans) # <-- USE HELPER
+                # STRIP the spans for storage using the imported helper
+                plain_value_str = strip_html_tags(value_str_with_spans) # <-- USES IMPORTED HELPER
 
                 if var_name not in variables:
                     var_type_sig = node.variable_type or (value_pin.get_type_signature() if value_pin else None)
@@ -217,34 +228,37 @@ class EnhancedMarkdownFormatter(BaseFormatter):
                 variables[var_name]['values'].append(plain_value_str)
         return variables
 
-    # --- extract_function_calls (MODIFIED - USES HELPER) ---
+    # --- extract_function_calls (Uses imported strip_html_tags) ---
     def extract_function_calls(self, processed_nodes_guids: Set[str]) -> Dict[str, Dict]:
         """Extracts function calls, storing PLAIN TEXT target and params."""
         functions = {}
         for guid in processed_nodes_guids:
             node = self.parser.get_node_by_guid(guid)
-            if isinstance(node, K2Node_CallFunction) and node.function_name:
+            if isinstance(node, (K2Node_CallFunction, K2Node_MacroInstance)) and node.function_name: # Also check Macros
                 func_name = node.function_name
                 params_plain = {}
                 target_pin = node.get_target_pin()
                 target_str_with_spans = self.data_tracer._trace_target_pin(target_pin, set()) if target_pin else "`self`"
-                # STRIP spans for storage
-                plain_target_str = strip_html_tags(target_str_with_spans) # <-- USE HELPER
+                # STRIP spans for storage using the imported helper
+                plain_target_str = strip_html_tags(target_str_with_spans) # <-- USES IMPORTED HELPER
 
                 for pin in node.get_input_pins(exclude_exec=True):
-                    if pin.name and pin.name.lower() not in ['self', 'target', 'worldcontextobject', '__worldcontext', 'latentinfo']:
+                    # Updated exclusion list
+                    if pin.name and pin.name.lower() not in ['self', 'target', 'worldcontextobject', '__worldcontext', 'latentinfo', 'then']:
                         val_with_spans = self.data_tracer.trace_pin_value(pin, visited_pins=set())
-                        # STRIP spans for storage
-                        plain_val = strip_html_tags(val_with_spans) # <-- USE HELPER
+                        # STRIP spans for storage using the imported helper
+                        plain_val = strip_html_tags(val_with_spans) # <-- USES IMPORTED HELPER
                         params_plain[pin.name] = plain_val # Store plain text
 
                 # Store call info with PLAIN text values
                 call_info = {
                     'target': plain_target_str,
                     'params': params_plain,
-                    'is_latent': node.is_latent
+                    'is_latent': getattr(node, 'is_latent', False) # Use getattr for safety (Macros don't have it)
                 }
                 if func_name not in functions:
                     functions[func_name] = {'calls': []}
                 functions[func_name]['calls'].append(call_info)
         return functions
+
+# --- END OF FILE blueprint_parser/formatter/human_readable_markdown.py ---

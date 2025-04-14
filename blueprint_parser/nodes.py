@@ -625,8 +625,9 @@ class K2Node_FunctionResult(Node):
 class K2Node_Tunnel(Node):
     def __init__(self, guid: str): super().__init__(guid, "Tunnel")
 
-# --- NEW: K2Node_Literal ---
+# --- NEW: K2Node_Literal (Integrated from old code) ---
 class K2Node_Literal(Node):
+    """Represents a literal value node."""
     def __init__(self, guid: str):
         super().__init__(guid, "Literal")
     def get_output_pin(self) -> Optional[Pin]:
@@ -635,11 +636,12 @@ class K2Node_Literal(Node):
         if pin and pin.is_output(): return pin
         return next((p for p in self.pins.values() if p.is_output()), None)
 
-# --- MODIFIED: K2Node_Composite ---
+# --- MODIFIED: K2Node_Composite (Integrated from old code) ---
 class K2Node_Composite(Node):
+     """Represents a collapsed graph node."""
      def __init__(self, guid: str):
          super().__init__(guid, "Composite")
-         self.bound_graph_name: Optional[str] = None # To store the name
+         self.bound_graph_name: Optional[str] = None # To store the name parsed later
 
 class K2Node_LatentAction(Node):
     def __init__(self, guid: str, node_type:str="LatentAction"):
@@ -660,15 +662,15 @@ class K2Node_PlayMontage(K2Node_LatentAction):
     def get_on_notify_begin_pin(self) -> Optional[Pin]: return self.get_pin("OnNotifyBegin")
     def get_on_notify_end_pin(self) -> Optional[Pin]: return self.get_pin("OnNotifyEnd")
 
-# --- MODIFIED: K2Node_CallArrayFunction ---
+# --- MODIFIED: K2Node_CallArrayFunction (Integrated from old code) ---
 class K2Node_CallArrayFunction(Node):
+    """Represents a node calling a function on an array."""
     def __init__(self, guid: str):
         super().__init__(guid, "CallArrayFunction")
-        self.array_function_name: Optional[str] = None # Ensure this exists
+        self.array_function_name: Optional[str] = None # Will be set during parsing finalize step
     def get_target_pin(self) -> Optional[Pin]: return self.get_pin("Target Array")
     def get_item_pin(self) -> Optional[Pin]: return self.get_pin("Item") or self.get_pin("item to find") or self.get_pin("New Item")
     def get_index_pin(self) -> Optional[Pin]: return self.get_pin("Index")
-    # Add getters for common array function outputs
     def get_return_value_pin(self) -> Optional[Pin]: return self.get_pin("ReturnValue") # For functions like Length, Get, Find
     def get_output_array_pin(self) -> Optional[Pin]: return self.get_pin("Output Array") # For functions like Set, Add, Insert, Remove
 
@@ -814,18 +816,20 @@ class K2Node_GetClassDefaults(Node):
         return None
 # --- END MODIFIED NODE SUBCLASSES ---
 
-# --- NEW: Bound Event Nodes ---
+# --- NEW: Bound Event Nodes (Integrated from old code) ---
 class K2Node_ComponentBoundEvent(Node):
+     """Represents an event bound to a component's delegate."""
      def __init__(self, guid: str):
          super().__init__(guid, "ComponentBoundEvent")
-         self.component_property_name: Optional[str] = None
-         self.delegate_property_name: Optional[str] = None
-         self.delegate_owner_class: Optional[str] = None # Store the class path
+         self.component_property_name: Optional[str] = None # Set during parsing finalize
+         self.delegate_property_name: Optional[str] = None # Set during parsing finalize
+         self.delegate_owner_class: Optional[str] = None # Store the class path, set during parsing finalize
 
 class K2Node_ActorBoundEvent(Node):
+     """Represents an event bound to an actor's delegate."""
      def __init__(self, guid: str):
          super().__init__(guid, "ActorBoundEvent")
-         self.delegate_property_name: Optional[str] = None
+         self.delegate_property_name: Optional[str] = None # Set during parsing finalize
          self.event_owner = None # Can store actor ref if needed/parsable
 
 class NiagaraNodeReroute(K2Node_Knot):
@@ -896,7 +900,7 @@ NODE_TYPE_MAP: Dict[str, type[Node]] = {
     "/Script/UnrealEd.MaterialGraphNode_Knot": K2Node_Knot,
     "/Script/NiagaraEditor.NiagaraNodeReroute": NiagaraNodeReroute,
 
-    # --- NEW MAPPINGS ---
+    # --- NEW MAPPINGS (Integrated from old code) ---
     "/Script/BlueprintGraph.K2Node_Literal": K2Node_Literal, # Add Literal
     "/Script/BlueprintGraph.K2Node_ComponentBoundEvent": K2Node_ComponentBoundEvent, # Add Bound Event
     "/Script/BlueprintGraph.K2Node_ActorBoundEvent": K2Node_ActorBoundEvent, # Add Bound Event
@@ -934,7 +938,6 @@ NODE_TYPE_MAP: Dict[str, type[Node]] = {
     "/Script/AIGraph.": Node, # Catch all AIGraph nodes
 
     # Other K2Nodes mapped generically for now
-    #"/Script/BlueprintGraph.K2Node_Literal": Node, # Now mapped specifically
     "/Script/BlueprintGraph.K2Node_Self": Node,
     "/Script/BlueprintGraph.K2Node_ConvertAsset": Node,
     "/Script/BlueprintGraph.K2Node_EnumEquality": Node,
@@ -948,9 +951,9 @@ NODE_TYPE_MAP: Dict[str, type[Node]] = {
     "/Script/BlueprintGraph.K2Node_AsyncAction": K2Node_LatentAction,
     "/Script/AIGraph.K2Node_AIMoveTo": K2Node_LatentAction,
 
-    # Other common nodes
-    #"/Script/BlueprintGraph.K2Node_ComponentBoundEvent": Node, # Now mapped specifically
-    #"/Script/BlueprintGraph.K2Node_ActorBoundEvent": Node, # Now mapped specifically
+    # Other common nodes (already covered by specific types above)
+    # "/Script/BlueprintGraph.K2Node_ComponentBoundEvent": Node, # Now mapped specifically
+    # "/Script/BlueprintGraph.K2Node_ActorBoundEvent": Node, # Now mapped specifically
 }
 
 def create_node_instance(guid: str, class_path: str) -> Node:
@@ -971,13 +974,31 @@ def create_node_instance(guid: str, class_path: str) -> Node:
 
     # Use predefined type for known classes
     try:
-        temp_instance = node_class(guid, "TempType") if node_class in [K2Node_Switch, K2Node_LatentAction, K2Node_GetSubsystem, K2Node_Knot] else node_class(guid)
-        node_type_str = temp_instance.node_type
-    except Exception:
-        node_type_str = "" # Will generate below
+        # Need to handle classes that require the node_type in __init__
+        if node_class in [K2Node_Switch, K2Node_LatentAction, K2Node_GetSubsystem, K2Node_Knot]:
+            # Temporarily create to get the type, handle potential errors if type needed but not known yet
+            # Note: This part of the factory logic might need refinement depending on how types are derived
+            #       If type comes *only* from splitting class_path, it's okay. If type needs properties,
+            #       it might be better to set type *after* base instantiation.
+            temp_instance = node_class(guid, "TempType") # Pass a dummy type
+            node_type_str = temp_instance.node_type
+        elif node_class != Node:
+             # Standard instantiation for classes not needing node_type arg
+            temp_instance = node_class(guid)
+            node_type_str = temp_instance.node_type
 
-    # Generate readable name if not obtained or if generic
-    if not node_type_str:
+    except TypeError as te:
+         # Handle cases where __init__ might be missing arguments (like the node_type)
+         if ENABLE_NODE_DEBUG: print(f"DEBUG: TypeError during temp instantiation for {node_class.__name__}: {te}. Will derive type.")
+         node_type_str = "" # Force derivation below
+    except Exception as e:
+        # Catch other unexpected errors during temp instantiation
+        if ENABLE_NODE_DEBUG: print(f"DEBUG: Error during temp instantiation for {node_class.__name__}: {e}. Will derive type.")
+        node_type_str = "" # Force derivation below
+
+
+    # Generate readable name if not obtained or if generic base Node
+    if not node_type_str or node_class == Node:
         node_type_str = class_path.split('.')[-1] if '.' in class_path else class_path
         node_type_str = node_type_str.split('/')[-1]
         prefixes_to_remove = [
@@ -994,16 +1015,28 @@ def create_node_instance(guid: str, class_path: str) -> Node:
     # Instantiate correctly
     instance: Node
     try:
-        if node_class == Node: instance = Node(guid, node_type_str)
-        elif node_class in [K2Node_Switch, K2Node_LatentAction, K2Node_GetSubsystem, K2Node_Knot]: instance = node_class(guid, node_type_str)
-        else: instance = node_class(guid)
+        if node_class == Node:
+            instance = Node(guid, node_type_str)
+        elif node_class in [K2Node_Switch, K2Node_LatentAction, K2Node_GetSubsystem, K2Node_Knot]:
+            # Pass the derived or default node_type_str
+            instance = node_class(guid, node_type_str)
+        else:
+            # Standard instantiation for classes not needing node_type arg
+            instance = node_class(guid)
+            # Ensure the derived type is set if the default wasn't correct or available
+            if not instance.node_type or instance.node_type == "TempType":
+                 instance.node_type = node_type_str
+
     except Exception as e:
         print(f"Error: Unexpected error instantiating {node_class.__name__} for {guid}: {e}. Falling back to base Node.")
+        # Fallback type derivation if instantiation failed
         node_type_str = class_path.split('.')[-1].replace("K2Node_", "").replace("EdGraphNode_", "")
         instance = Node(guid, node_type_str)
 
     instance.ue_class = class_path
-    if not instance.node_type: instance.node_type = node_type_str # Ensure node_type is set
+    # Ensure node_type is set, especially important for the base Node fallback
+    if not instance.node_type:
+        instance.node_type = node_type_str
 
     return instance
 

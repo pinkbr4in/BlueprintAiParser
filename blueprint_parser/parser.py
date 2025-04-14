@@ -13,11 +13,11 @@ from .nodes import (
     K2Node_AddDelegate, K2Node_AssignDelegate, K2Node_RemoveDelegate, K2Node_ClearDelegate,
     K2Node_CallDelegate, K2Node_CreateDelegate, K2Node_MakeStruct, K2Node_BreakStruct,
     K2Node_SetFieldsInStruct, K2Node_SwitchEnum, K2Node_DynamicCast,
-    K2Node_PromotableOperator, K2Node_CommutativeAssociativeBinaryOperator,
+    K2Node_PromotableOperator, K2Node_CommutativeAssociativeBinaryOperator, # Ensure imported
     K2Node_SpawnActorFromClass, K2Node_AddComponent, K2Node_CreateWidget,
     K2Node_CallArrayFunction, K2Node_GetClassDefaults, K2Node_GetSubsystem, K2Node_InputTouch,
     # --- Added Types ---
-    K2Node_Literal, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent, K2Node_Composite
+    K2Node_Literal, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent, K2Node_Composite # Add new types
 )
 from .utils import (
     parse_properties_recursive,
@@ -28,13 +28,13 @@ from .utils import (
     extract_member_name,
     extract_simple_name_from_path,
     extract_specific_type,
-    extract_macro_path, # Ensured import
+    extract_macro_path, # Ensure imported
     PROP_REGEX,
     VAR_REF_REGEX, STRUCT_TYPE_REGEX, ENUM_TYPE_REGEX, CAST_TARGET_TYPE_REGEX,
     DELEGATE_REF_REGEX, INPUT_AXIS_NAME_REGEX, INPUT_ACTION_NAME_REGEX,
     INPUT_KEY_NAME_REGEX,
     TIMELINE_NAME_REGEX, SUPER_FUNCTION_NAME_REGEX, INPUT_ACTION_PATH_REGEX,
-    MACRO_PATH_REGEX, FUNCTION_REF_REGEX, CLASS_PATH_REGEX, MEMBER_NAME_REGEX # Added MEMBER_NAME_REGEX
+    MACRO_PATH_REGEX, FUNCTION_REF_REGEX, CLASS_PATH_REGEX, MEMBER_NAME_REGEX # Ensure imported
 )
 
 # --- Debug Flag ---
@@ -292,26 +292,34 @@ class BlueprintParser:
             node.comment_color = str(node.raw_properties.get("CommentColor")) # Store as string '(<R>,<G>,<B>,<A>)'
             node.NodeWidth = int(float(node.raw_properties.get("NodeWidth", 500)))
             node.NodeHeight = int(float(node.raw_properties.get("NodeHeight", 300)))
+            pass # Explicitly pass after handling
         elif isinstance(node, K2Node_CustomEvent):
             node.custom_function_name = str(node.raw_properties.get("CustomFunctionName", "")).strip('"') or None
+            pass # Explicitly pass after handling
         # --- NEW: K2Node_Literal ---
         elif isinstance(node, K2Node_Literal):
-             # Usually doesn't have extra properties, relies on pins' DefaultValue
-             pass # No specific props needed for now
+            # Usually relies on pins' DefaultValue, no extra node props needed here
+            pass
         # --- END NEW ---
         elif isinstance(node, K2Node_Event):
             ref = node.raw_properties.get("EventReference") or node.raw_properties.get("FunctionReference")
             node.event_function_name = extract_member_name(ref)
+            pass # Explicitly pass after handling
         # --- NEW: K2Node_ComponentBoundEvent ---
         elif isinstance(node, K2Node_ComponentBoundEvent):
             node.component_property_name = str(node.raw_properties.get("ComponentPropertyName", "")).strip('"') or None
             node.delegate_property_name = str(node.raw_properties.get("DelegatePropertyName", "")).strip('"') or None
             owner_class_ref = node.raw_properties.get("DelegateOwnerClass")
             node.delegate_owner_class = str(owner_class_ref).strip("'\"") if owner_class_ref else None
+            # Store the event function name from delegate name if possible
+            node.event_function_name = node.delegate_property_name
         # --- NEW: K2Node_ActorBoundEvent ---
         elif isinstance(node, K2Node_ActorBoundEvent):
             node.delegate_property_name = str(node.raw_properties.get("DelegatePropertyName", "")).strip('"') or None
-            # Actor ref ('EventOwner') might be harder to parse reliably from text, skip for now
+            # EventOwner property might hold actor reference, but could be complex to parse fully
+            # node.event_owner = node.raw_properties.get("EventOwner")
+            # Store the event function name from delegate name if possible
+            node.event_function_name = node.delegate_property_name
         # --- END NEW ---
         elif isinstance(node, K2Node_EnhancedInputAction):
             action_ref = node.raw_properties.get("InputAction")
@@ -380,6 +388,7 @@ class BlueprintParser:
             if not node.struct_type:
                 pin = node.get_output_struct_pin() if isinstance(node, K2Node_MakeStruct) else node.get_input_struct_pin()
                 if pin and pin.sub_category_object: node.struct_type = extract_simple_name_from_path(pin.sub_category_object)
+            pass # Explicitly pass after handling
         elif isinstance(node, K2Node_SwitchEnum):
             enum_ref = node.raw_properties.get("Enum")
             node.enum_type = extract_simple_name_from_path(enum_ref) or extract_specific_type(full_property_text, ENUM_TYPE_REGEX, 1)
@@ -392,24 +401,28 @@ class BlueprintParser:
             if not node.target_type:
                 as_pin = node.get_as_pin()
                 if as_pin and as_pin.sub_category_object: node.target_type = extract_simple_name_from_path(as_pin.sub_category_object)
+        # --- MODIFIED: Operators ---
         elif isinstance(node, (K2Node_PromotableOperator, K2Node_CommutativeAssociativeBinaryOperator)):
             func_ref = node.raw_properties.get("FunctionReference")
-            # Use existing MemberName extraction
-            op_name = extract_member_name(func_ref) or str(node.raw_properties.get("OperationName", "")).strip('"') or None
+            op_name_full = extract_member_name(func_ref) or str(node.raw_properties.get("OperationName", "")).strip('"') or None
+
             # Store the base operation name (e.g., "Add" from "Add_IntInt")
-            if op_name and '_' in op_name:
-                base_op_name = op_name.split('_')[0]
-                # Handle specific cases like EqualEqual
-                if base_op_name == "EqualEqual": base_op_name = "EqualEqual"
-                elif base_op_name == "NotEqual": base_op_name = "NotEqual"
-                # Store the cleaned name
-                node.operation_name = base_op_name
-            else:
-                node.operation_name = op_name
-            node.function_name = node.operation_name # Also store for consistency if needed elsewhere
+            base_op_name = op_name_full
+            if op_name_full and '_' in op_name_full:
+                parts = op_name_full.split('_', 1) # Split only once
+                potential_base = parts[0]
+                # Check if the first part is a known operator keyword base
+                # Added common boolean/comparison ops
+                if potential_base in ["Add", "Subtract", "Multiply", "Divide", "Less", "Greater", "LessEqual", "GreaterEqual", "EqualEqual", "NotEqual", "BooleanAND", "BooleanOR", "BooleanXOR", "BooleanNAND", "Max", "Min", "Percent", "BooleanNOT"]:
+                    base_op_name = potential_base
+
+            node.operation_name = base_op_name
+            node.function_name = base_op_name # Store cleaned name for potential use
+        # --- END MODIFICATION ---
         elif isinstance(node, K2Node_SpawnActorFromClass):
             class_ref = node.raw_properties.get("ClassToSpawn")
             node.spawn_class_path = str(class_ref).strip("'\"") if class_ref else extract_specific_type(full_property_text, CLASS_PATH_REGEX, 2, "ClassToSpawn")
+            pass # Explicitly pass after handling
         elif isinstance(node, K2Node_AddComponent):
             class_ref = node.raw_properties.get("ComponentClass")
             node.component_class_path = str(class_ref).strip("'\"") if class_ref else extract_specific_type(full_property_text, CLASS_PATH_REGEX, 2, "ComponentClass")
@@ -423,9 +436,11 @@ class BlueprintParser:
             if not node.component_class_path:
                 class_pin = node.get_component_class_pin() # Check DefaultObject on the class pin
                 if class_pin and class_pin.default_object: node.component_class_path = str(class_pin.default_object).strip("'\"")
+            pass # Explicitly pass after handling
         elif isinstance(node, K2Node_CreateWidget):
             class_ref = node.raw_properties.get("WidgetClass")
             node.widget_class_path = str(class_ref).strip("'\"") if class_ref else extract_specific_type(full_property_text, CLASS_PATH_REGEX, 2, "WidgetClass")
+            pass # Explicitly pass after handling
         # --- MODIFIED: K2Node_CallArrayFunction ---
         elif isinstance(node, K2Node_CallArrayFunction):
              func_ref = node.raw_properties.get("FunctionReference")
@@ -442,6 +457,7 @@ class BlueprintParser:
             if not node.target_class_path:
                 output_pin = next((p for p in node.get_output_pins() if p.name != 'self'), None)
                 if output_pin and output_pin.sub_category_object: node.target_class_path = str(output_pin.sub_category_object).strip("'\"")
+            pass # Explicitly pass after handling
         elif isinstance(node, K2Node_GetSubsystem):
             # Correctly look for "CustomClass" property
             class_ref = node.raw_properties.get("CustomClass")
@@ -453,6 +469,7 @@ class BlueprintParser:
             # --- Debug Print ---
             if ENABLE_PARSER_DEBUG: print(f"DEBUG [GetSubsystem Finalize]: Set subsystem_class_path: {node.subsystem_class_path}", file=sys.stderr)
             # --- End Debug ---
+            pass # Explicitly pass after handling
         # --- NEW: K2Node_Composite ---
         elif isinstance(node, K2Node_Composite):
             bound_graph_ref = node.raw_properties.get("BoundGraph")
@@ -460,6 +477,7 @@ class BlueprintParser:
             graph_path = extract_macro_path(bound_graph_ref)
             node.bound_graph_name = extract_simple_name_from_path(graph_path) or "CollapsedGraph"
         # --- END NEW ---
+
 
     # --- CORRECTED _resolve_links ---
     def _resolve_links(self):
@@ -504,38 +522,38 @@ class BlueprintParser:
                     if resolved_guid_from_name:
                         actual_target_guid = resolved_guid_from_name
                         target_node = self.nodes.get(actual_target_guid) or self.comments.get(actual_target_guid) # Check both nodes and comments
-                        # if ENABLE_PARSER_DEBUG: print(f"        Node Ref '{target_node_ref}' found in name map -> GUID '{actual_target_guid}'. Node/Comment object found: {target_node is not None}", file=sys.stderr)
+                        # if ENABLE_PARSER_DEBUG: print(f"       Node Ref '{target_node_ref}' found in name map -> GUID '{actual_target_guid}'. Node/Comment object found: {target_node is not None}", file=sys.stderr)
                     else:
                         # If not found by name, assume the ref *is* the GUID
                         actual_target_guid = target_node_ref
                         target_node = self.nodes.get(actual_target_guid) or self.comments.get(actual_target_guid) # Check both nodes and comments
-                        # if ENABLE_PARSER_DEBUG: print(f"        Node Ref '{target_node_ref}' not in name map. Treating as GUID. Node/Comment object found: {target_node is not None}", file=sys.stderr)
+                        # if ENABLE_PARSER_DEBUG: print(f"       Node Ref '{target_node_ref}' not in name map. Treating as GUID. Node/Comment object found: {target_node is not None}", file=sys.stderr)
 
                     if target_node:
                         target_pin = target_node.pins.get(target_pin_id_ref)
 
                         if target_pin:
-                            # if ENABLE_PARSER_DEBUG: print(f"        Target Pin FOUND: '{target_pin.name}' ({target_pin_id_ref}) within Node/Comment '{target_node.name}'. SUCCESS.", file=sys.stderr)
+                            # if ENABLE_PARSER_DEBUG: print(f"       Target Pin FOUND: '{target_pin.name}' ({target_pin_id_ref}) within Node/Comment '{target_node.name}'. SUCCESS.", file=sys.stderr)
                             if target_pin not in pin.linked_pins:
                                 pin.linked_pins.append(target_pin)
                             # Add back-reference
                             if pin not in target_pin.source_pin_for:
                                 target_pin.source_pin_for.append(pin)
-                                # if ENABLE_PARSER_DEBUG: print(f"          Appended source link to target pin '{target_pin.name}'. New source_pin_for count: {len(target_pin.source_pin_for)}", file=sys.stderr)
+                                # if ENABLE_PARSER_DEBUG: print(f"         Appended source link to target pin '{target_pin.name}'. New source_pin_for count: {len(target_pin.source_pin_for)}", file=sys.stderr)
                             resolved_links += 1
                         else:
                             unresolved_pin_lookups += 1
                             if ENABLE_PARSER_DEBUG:
-                                print(f"        Target Pin ID '{target_pin_id_ref}' NOT FOUND within pins of target node/comment '{target_node.name}' ({target_node.guid[:8]}). LOOKUP FAILURE.", file=sys.stderr)
+                                print(f"       Target Pin ID '{target_pin_id_ref}' NOT FOUND within pins of target node/comment '{target_node.name}' ({target_node.guid[:8]}). LOOKUP FAILURE.", file=sys.stderr)
                                 target_pin_ids_on_node = list(target_node.pins.keys())
-                                print(f"          Available Pin IDs on target: {target_pin_ids_on_node}", file=sys.stderr)
+                                print(f"         Available Pin IDs on target: {target_pin_ids_on_node}", file=sys.stderr)
                     else:
                         unresolved_name_lookups += 1
-                        if ENABLE_PARSER_DEBUG: print(f"        Target Node/Comment NOT FOUND using ref '{target_node_ref}' (resolved/tried GUID: '{actual_target_guid}'). NAME/GUID LOOKUP FAILURE.", file=sys.stderr)
+                        if ENABLE_PARSER_DEBUG: print(f"       Target Node/Comment NOT FOUND using ref '{target_node_ref}' (resolved/tried GUID: '{actual_target_guid}'). NAME/GUID LOOKUP FAILURE.", file=sys.stderr)
                         # Check if name lookup succeeded but the node object itself is missing (should be rare)
                         if resolved_guid_from_name and resolved_guid_from_name not in self.nodes and resolved_guid_from_name not in self.comments:
                                 unresolved_missing_nodes += 1
-                                if ENABLE_PARSER_DEBUG: print(f"          (Name lookup succeeded, but node/comment object missing from dictionaries)", file=sys.stderr)
+                                if ENABLE_PARSER_DEBUG: print(f"         (Name lookup succeeded, but node/comment object missing from dictionaries)", file=sys.stderr)
 
 
         self.stats["links_resolved"] = resolved_links

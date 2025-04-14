@@ -4,7 +4,6 @@ import re
 from typing import Dict, Optional, Set, Tuple, List
 import sys
 # --- Use relative import ---
-# --- MODIFIED: Add Literal, Bound Events, Composite ---
 from ..nodes import (Node, Pin, K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction,
                      K2Node_VariableSet, K2Node_VariableGet, K2Node_IfThenElse, K2Node_ExecutionSequence, K2Node_FlipFlop,
                      K2Node_DynamicCast, K2Node_AddDelegate, K2Node_AssignDelegate, K2Node_RemoveDelegate, K2Node_ClearDelegate,
@@ -48,61 +47,57 @@ class NodeFormatter:
         if target_str == span("bp-var", "`self`"):
             return "" # Implicit self
         elif re.match(r'^<span class="bp-var">`[a-zA-Z0-9_]+`</span>$', target_str) and '.' not in target_str:
-             return f" on {target_str}" # Simple variable target
+              return f" on {target_str}" # Simple variable target
         else:
             # Wrap complex expressions or function calls in parentheses visually
             return f" on ({target_str})"
 
     # --- MODIFIED: Calls trace_pin_value with Pin object ---
     def _format_arguments(self, node: Node, visited_data_pins: Set[str], exclude_pins: Optional[Set[str]] = None) -> str:
-         """Formats arguments as (Name=Value, ...) string, skipping trivial/implicit/excluded."""
-         if exclude_pins is None: exclude_pins = set()
-         args_list = []
-         implicit_pins = {'self', 'target', 'worldcontextobject', '__worldcontext', 'latentinfo'}
-         exclude_pins.update(implicit_pins)
+        """Formats arguments as (Name=Value, ...) string, skipping trivial/implicit/excluded."""
+        if exclude_pins is None: exclude_pins = set()
+        args_list = []
+        implicit_pins = {'self', 'target', 'worldcontextobject', '__worldcontext', 'latentinfo'}
+        exclude_pins.update(implicit_pins)
 
-         sorted_pins = node.get_input_pins(exclude_exec=True, include_hidden=True)
+        sorted_pins = node.get_input_pins(exclude_exec=True, include_hidden=True)
 
-         has_advanced_inputs = any(p.is_advanced_view() for p in sorted_pins)
-         show_advanced = has_advanced_inputs and any(
-             p.is_advanced_view() and (p.linked_pins or not self.data_tracer._is_trivial_default(p))
-             for p in sorted_pins
-         )
+        has_advanced_inputs = any(p.is_advanced_view() for p in sorted_pins)
+        show_advanced = has_advanced_inputs and any(
+            p.is_advanced_view() and (p.linked_pins or not self.data_tracer._is_trivial_default(p))
+            for p in sorted_pins
+        )
 
-         for pin in sorted_pins:
-             pin_name_lower = (pin.name or "").lower()
-             if pin_name_lower in exclude_pins or pin.is_hidden() or (pin.is_advanced_view() and not show_advanced):
-                 continue
-             try:
-                 if pin.linked_pins or not self.data_tracer._is_trivial_default(pin):
-                     # !!! Pass the Pin object, not just the ID !!!
-                     pin_val_raw = self.data_tracer.trace_pin_value(pin, visited_pins=visited_data_pins.copy())
-                     # Wrap pin name and value appropriately
-                     pin_name_span = span("bp-param-name", f"`{pin.name}`")
-                     # Value might already contain spans from deeper tracing
-                     args_list.append(f"{pin_name_span}={pin_val_raw}")
-             except Exception as e:
-                 print(f"ERROR: Error tracing argument pin `{pin.name}` on node {node.guid}: {e}", file=sys.stderr)
-                 # Print full traceback for argument tracing errors if debug enabled
-                 if ENABLE_NODE_FORMATTER_DEBUG:
-                     import traceback
-                     traceback.print_exc()
-                 pin_name_span = span("bp-param-name", f"`{pin.name}`")
-                 args_list.append(f"{pin_name_span}={span('bp-error', '[Trace Error]')}")
+        for pin in sorted_pins:
+            pin_name_lower = (pin.name or "").lower()
+            if pin_name_lower in exclude_pins or pin.is_hidden() or (pin.is_advanced_view() and not show_advanced):
+                continue
+            try:
+                if pin.linked_pins or not self.data_tracer._is_trivial_default(pin):
+                    # !!! Pass the Pin object, not just the ID !!!
+                    pin_val_raw = self.data_tracer.trace_pin_value(pin, visited_pins=visited_data_pins.copy())
+                    # Wrap pin name and value appropriately
+                    pin_name_span = span("bp-param-name", f"`{pin.name}`")
+                    # Value might already contain spans from deeper tracing
+                    args_list.append(f"{pin_name_span}={pin_val_raw}")
+            except Exception as e:
+                print(f"ERROR: Error tracing argument pin `{pin.name}` on node {node.guid}: {e}", file=sys.stderr)
+                # Print full traceback for argument tracing errors if debug enabled
+                if ENABLE_NODE_FORMATTER_DEBUG:
+                    import traceback
+                    traceback.print_exc()
+                pin_name_span = span("bp-param-name", f"`{pin.name}`")
+                args_list.append(f"{pin_name_span}={span('bp-error', '[Trace Error]')}")
 
-         return f"({', '.join(args_list)})" if args_list else ""
+        return f"({', '.join(args_list)})" if args_list else ""
     # ----------------------------------------------------
 
 
     def format_node(self, node: Node, prefix: str, visited_data_pins: Set[str]) -> Tuple[Optional[str], Optional[Pin]]:
         """Formats a node into Markdown, returns (description, primary_output_exec_pin)."""
-        if node.is_pure():
-            # if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG (NodeFormatter): Skipping pure node formatting: {node.name or node.guid} ({node.node_type})", file=sys.stderr)
-            return None, None
-
-        primary_exec_output = node.get_execution_output_pin()
-
+        # --- MODIFIED: Call _format_literal_node which can return None ---
         formatter_func = self._get_formatter_func(node)
+        desc: Optional[str] = None
         try:
             # Pass a copy of visited_data_pins to isolate data tracing for this node's arguments
             desc = formatter_func(node, visited_data_pins.copy())
@@ -112,13 +107,24 @@ class NodeFormatter:
             if ENABLE_NODE_FORMATTER_DEBUG or ENABLE_PARSER_DEBUG: traceback.print_exc() # Use global debug flag potentially
             desc = f"{span('bp-error', '**ERROR Formatting Node**')} {span('bp-node-type', f'`{node.node_type}`')}"
 
+        # If the formatter returned None (e.g., for pure or literal nodes), we don't trace from it.
+        if desc is None:
+            # if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG (NodeFormatter): Skipping pure/literal node formatting: {node.name or node.guid} ({node.node_type})", file=sys.stderr)
+            return None, None
+
+        primary_exec_output = node.get_execution_output_pin()
         return desc, primary_exec_output
 
 
     # --- MODIFIED: Add Literal, Bound Events, Composite ---
     def _get_formatter_func(self, node: Node) -> callable:
         if isinstance(node, K2Node_Literal): return self._format_literal_node # NEW
-        if isinstance(node, (K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction, K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent, K2Node_InputDebugKey, K2Node_FunctionEntry, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent)): return self._format_event # Modified to include BoundEvents
+        # --- MODIFIED: Include Bound Events ---
+        if isinstance(node, (K2Node_Event, K2Node_CustomEvent, K2Node_EnhancedInputAction, K2Node_InputAction,
+                              K2Node_InputAxisEvent, K2Node_InputKey, K2Node_InputTouch, K2Node_InputAxisKeyEvent,
+                              K2Node_InputDebugKey, K2Node_FunctionEntry, K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent)):
+            return self._format_event
+        # --- END MODIFICATION ---
         if isinstance(node, K2Node_VariableSet): return self._format_variable_set
         if isinstance(node, K2Node_CallFunction): return self._format_call_function
         if isinstance(node, K2Node_MacroInstance): return self._format_macro_instance
@@ -141,7 +147,7 @@ class NodeFormatter:
         if isinstance(node, K2Node_AddComponent): return self._format_add_component
         if isinstance(node, K2Node_CreateWidget): return self._format_create_widget
         if isinstance(node, K2Node_GenericCreateObject): return self._format_generic_create_object
-        if isinstance(node, K2Node_CallArrayFunction): return self._format_call_array_function
+        if isinstance(node, K2Node_CallArrayFunction): return self._format_call_array_function # ADDED Line
         if isinstance(node, K2Node_FormatText): return self._format_format_text
         if isinstance(node, K2Node_PlayMontage): return self._format_play_montage
         if isinstance(node, K2Node_LatentAction): return self._format_latent_action
@@ -149,37 +155,43 @@ class NodeFormatter:
         return self._format_generic
 
     # --- NEW: Format Literal Node (Often skipped visually) ---
-    def _format_literal_node(self, node: K2Node_Literal, visited_data_pins: Set[str]) -> str:
-        # Literals are usually pure and handled by data tracer, but provide a fallback representation
-        output_pin = node.get_output_pin()
-        value_str = self.data_tracer.trace_pin_value(output_pin, visited_pins=visited_data_pins.copy()) if output_pin else span("bp-error", "<?>")
-        return f"{span('bp-keyword', '**Literal**')} Value={value_str}" # Simple representation
+    def _format_literal_node(self, node: K2Node_Literal, visited_data_pins: Set[str]) -> Optional[str]:
+         # Literal nodes usually don't appear directly in the execution flow trace,
+         # their value is resolved by the DataTracer when tracing pins connected to them.
+         # Return None so the PathTracer skips showing it as a separate execution step.
+         if ENABLE_NODE_FORMATTER_DEBUG: print(f"DEBUG (NodeFormatter): Skipping visual format for Literal Node {node.guid[:4]}", file=sys.stderr)
+         return None
 
     # --- MODIFIED: Add Bound Event Handling ---
     def _format_event(self, node: Node, visited_data_pins: Set[str]) -> str:
-        name = "Unknown Event"; keyword = span("bp-keyword", "**Event**"); args_list = []; suffix = ""
+        name = "Unknown Event"; keyword = span("bp-keyword", "**Event**"); args_list = []
+        # Extract standard event/input args_list from output data pins
         output_data_pins = node.get_output_pins(include_hidden=False)
         for pin in output_data_pins:
-             if not pin.is_execution():
-                  pin_type_sig = pin.get_type_signature()
-                  pin_type_span = span("bp-data-type", f":`{pin_type_sig}`") if pin_type_sig else ""
-                  args_list.append(f"{span('bp-param-name', f'`{pin.name}`')}{pin_type_span}")
+            if not pin.is_execution():
+                pin_type_sig = pin.get_type_signature()
+                pin_type_span = span("bp-data-type", f":`{pin_type_sig}`") if pin_type_sig else ""
+                args_list.append(f"{span('bp-param-name', f'`{pin.name}`')}{pin_type_span}")
         args_str = f" Args:({', '.join(args_list)})" if args_list else ""
 
         # --- ADDED Bound Event Logic ---
         if isinstance(node, K2Node_ComponentBoundEvent):
+            # Use properties set during parsing finalize step
             delegate_name = node.delegate_property_name or "?Delegate?"
             comp_name = node.component_property_name or "?Component?"
             owner_class = extract_simple_name_from_path(node.delegate_owner_class) or "?"
-            # Format the name with spans directly here
-            name = f"{delegate_name} ({span('bp-component-name',f'`{comp_name}`')} on {span('bp-class-name', f'`{owner_class}`')})"
+            # Format the name string, applying spans
+            name = f"{span('bp-delegate-name', f'`{delegate_name}`')} ({span('bp-component-name', f'`{comp_name}`')} on {span('bp-class-name', f'`{owner_class}`')})"
             keyword = span("bp-keyword", "**Bound Event**")
+            # Clear args_str as output pins are usually just 'OutputDelegate' which isn't a data param
+            args_str = ""
         elif isinstance(node, K2Node_ActorBoundEvent):
             delegate_name = node.delegate_property_name or "?Delegate?"
-            # Owner info might not be easily available, keep it simple
-            # Format the name with spans directly here
-            name = f"{delegate_name}" # Just the name, no extra spans needed if already handled by data_tracer
+            # Format the name string, applying spans
+            name = f"{span('bp-delegate-name', f'`{delegate_name}`')}"
             keyword = span("bp-keyword", "**Actor Bound Event**")
+            # Clear args_str
+            args_str = ""
         # --- END ADDED ---
         elif isinstance(node, K2Node_CustomEvent):
             name = node.custom_function_name or "Unnamed Custom"
@@ -219,12 +231,8 @@ class NodeFormatter:
             name = name_map.get(name, name)
             keyword = span("bp-keyword", "**Event**")
 
-        # Avoid double backticks/spans if name was already formatted for bound events
-        if isinstance(node, (K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent)):
-            name_span = name
-        else:
-             name_span = span("bp-event-name", f"`{name}`")
-
+        # Format name with span unless already formatted by Bound Event logic
+        name_span = span("bp-event-name", f"`{name}`") if not isinstance(node, (K2Node_ComponentBoundEvent, K2Node_ActorBoundEvent)) else name
         return f"{keyword} {name_span}{args_str}"
 
 
@@ -330,15 +338,60 @@ class NodeFormatter:
     def _format_flipflop(self, node: K2Node_FlipFlop, visited_data_pins: Set[str]) -> str:
         return span("bp-keyword", "**FlipFlop**")
 
+    # --- START OF MODIFIED _format_dynamic_cast ---
     def _format_dynamic_cast(self, node: K2Node_DynamicCast, visited_data_pins: Set[str]) -> str:
         object_pin = node.get_object_pin()
         object_str_raw = self.data_tracer.trace_pin_value(object_pin, visited_pins=visited_data_pins.copy()) if object_pin else span("bp-error", "<?>")
-        cast_type = f"`{node.target_type}`" if node.target_type else "`UnknownType`"
-        cast_type_span = span("bp-data-type", cast_type)
+
+        # --- MODIFICATION START: Prioritize 'As...' pin type ---
+        cast_type_name = "UnknownType"
         as_pin = node.get_as_pin()
-        as_pin_str = f" (as {span('bp-param-name', f'`{as_pin.name}`')})" if as_pin else ""
+        as_pin_type_path = None
+        target_type_path = node.raw_properties.get("TargetType") # Get the raw property value
+
+        if as_pin and as_pin.sub_category_object:
+            as_pin_type_path = as_pin.sub_category_object
+            # Check if the 'As...' pin type is more specific than the TargetType property
+            # (e.g., AsPin is '/Script/Engine.PlayerController' while TargetType is '/Script/CoreUObject.Class')
+            # Use extract_simple_name_from_path to get the actual class name
+            resolved_name = extract_simple_name_from_path(as_pin_type_path)
+            if resolved_name and resolved_name.lower() != 'object': # Check against simple 'Object' too
+                # Let's also check if the target_type is something very generic like 'Class' or 'Object'
+                target_type_simple = extract_simple_name_from_path(str(target_type_path)) if target_type_path else None
+                if not target_type_simple or target_type_simple.lower() in ('class', 'object'):
+                     cast_type_name = resolved_name
+                else:
+                    # If TargetType is also specific, we might need more sophisticated logic,
+                    # but for now, let's prefer the 'As...' pin if it's not just 'Object'.
+                    cast_type_name = resolved_name
+
+
+        # If 'As...' pin didn't give a specific type or wasn't preferred, try the TargetType property from the node
+        if cast_type_name == "UnknownType" and target_type_path:
+             resolved_name = extract_simple_name_from_path(str(target_type_path))
+             # Avoid using generic 'Class' or 'Object' if possible
+             if resolved_name and resolved_name.lower() not in ('class', 'object'):
+                  cast_type_name = resolved_name
+
+        # Final fallback if both failed or yielded generic types
+        if cast_type_name == "UnknownType" or cast_type_name.lower() in ('class', 'object'):
+             # Try the parsed target_type attribute as a last resort, if it exists and isn't generic
+             parsed_target_type_name = extract_simple_name_from_path(node.target_type)
+             if parsed_target_type_name and parsed_target_type_name.lower() not in ('class', 'object'):
+                 cast_type_name = parsed_target_type_name
+             elif cast_type_name == "UnknownType": # Only use UnknownType if everything else failed
+                  cast_type_name = "UnknownType"
+
+
+        cast_type_span = span("bp-data-type", f"`{cast_type_name}`")
+        # Add the 'as PinName' part only if the As... pin exists
+        as_pin_str = f" (as {span('bp-param-name', f'`{as_pin.name}`')})" if as_pin and as_pin.name else ""
+        # --- MODIFICATION END ---
+
         keyword = span("bp-keyword", "**Cast**")
         return f"{keyword} ({object_str_raw}) To {cast_type_span}{as_pin_str}"
+    # --- END OF MODIFIED _format_dynamic_cast ---
+
 
     def _format_delegate_binding(self, node: Node, visited_data_pins: Set[str], action: str) -> str:
         delegate_prop_name = node.delegate_name or "?Delegate?"
@@ -463,6 +516,7 @@ class NodeFormatter:
         class_name_span = span("bp-class-name", class_name) # class_name might already have spans
         return f"{keyword} {class_name_span} Outer=({outer_str}) {other_args_str}"
 
+    # --- NEW: Format Call Array Function ---
     def _format_call_array_function(self, node: K2Node_CallArrayFunction, visited_data_pins: Set[str]) -> str:
         array_pin = node.get_target_pin()
         array_str_raw = self.data_tracer.trace_pin_value(array_pin, visited_pins=visited_data_pins.copy()) if array_pin else span("bp-error", "<?>")
@@ -505,8 +559,7 @@ class NodeFormatter:
         graph_name = node.bound_graph_name or "Unnamed Graph"
         keyword = span("bp-keyword", "**Collapsed Graph**")
         graph_name_span = span("bp-graph-name", f"`{graph_name}`") # Add new CSS class if desired
-        # Arguments are tunnel pins, might not need detailed formatting here
-        # args_str = self._format_arguments(node, visited_data_pins.copy()) # Optional: could format tunnel pins if needed
+        # Don't typically show arguments for collapsed graphs in this view
         return f"{keyword}: {graph_name_span}"
     # --- END NEW ---
 

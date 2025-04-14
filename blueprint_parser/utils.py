@@ -108,7 +108,7 @@ def parse_value(value_str: str) -> Any:
                         # Check if it's a key=value pair format
                         key_candidate = buffer.strip().strip('"')
                         if re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', key_candidate) or re.match(r'^[XYZRPYGAxyzrpyga]$', key_candidate):
-                           first_equals_found_at_level_0 = True
+                            first_equals_found_at_level_0 = True
                         buffer = "" # Reset buffer after finding equals
                         # Don't split here, let comma handle splitting pairs
                     else:
@@ -230,11 +230,11 @@ def parse_pin_details(pin_content: str) -> Dict[str, Any]:
                  if isinstance(item, str): processed_links.extend(parse_linked_to(item))
                  elif isinstance(item, (list, tuple)) and len(item) == 2: processed_links.append((str(item[0]).strip('"'), str(item[1])))
                  elif isinstance(item, dict):
-                     node_name = item.get("Node") or item.get("_value_0") # Check both common patterns
-                     pin_id = item.get("Pin") or item.get("_value_1")
-                     if node_name and pin_id: processed_links.append((str(node_name).strip('"'), str(pin_id)))
+                      node_name = item.get("Node") or item.get("_value_0") # Check both common patterns
+                      pin_id = item.get("Pin") or item.get("_value_1")
+                      if node_name and pin_id: processed_links.append((str(node_name).strip('"'), str(pin_id)))
                  else:
-                     print(f"Warning: Unhandled item type in LinkedTo list: {type(item)} - {item}")
+                      print(f"Warning: Unhandled item type in LinkedTo list: {type(item)} - {item}")
             details["LinkedTo"] = processed_links
         elif isinstance(linked_to_val, str): details["LinkedTo"] = parse_linked_to(linked_to_val)
         elif isinstance(linked_to_val, dict) and not linked_to_val: details["LinkedTo"] = []
@@ -263,17 +263,17 @@ def parse_pin_details(pin_content: str) -> Dict[str, Any]:
         if isinstance(data, dict):
             for key, value in list(data.items()):
                  if isinstance(value, str):
-                     if value.lower() == 'true': data[key] = True
-                     elif value.lower() == 'false': data[key] = False
+                      if value.lower() == 'true': data[key] = True
+                      elif value.lower() == 'false': data[key] = False
                  elif isinstance(value, (dict, list)):
-                     convert_bools(value)
+                      convert_bools(value)
         elif isinstance(data, list):
             for i, item in enumerate(data):
                  if isinstance(item, str):
-                     if item.lower() == 'true': data[i] = True
-                     elif item.lower() == 'false': data[i] = False
+                      if item.lower() == 'true': data[i] = True
+                      elif item.lower() == 'false': data[i] = False
                  elif isinstance(item, (dict, list)):
-                     convert_bools(item)
+                      convert_bools(item)
     convert_bools(details)
 
     # Ensure PinId is present (fallback)
@@ -319,7 +319,7 @@ def parse_variable_reference(var_ref_val: Any) -> Optional[str]:
      if isinstance(var_ref_val, dict):
          member_name = var_ref_val.get("MemberName")
          if not member_name and "MemberReference" in var_ref_val and isinstance(var_ref_val["MemberReference"], dict):
-              member_name = var_ref_val["MemberReference"].get("MemberName")
+             member_name = var_ref_val["MemberReference"].get("MemberName")
          return str(member_name).strip('"') if member_name else None
      elif isinstance(var_ref_val, str):
          match = VAR_REF_REGEX.search(var_ref_val)
@@ -453,6 +453,18 @@ def extract_macro_path(macro_ref_val: Any) -> Optional[str]:
          if match: path = match.group(1)
          else: path = macro_ref_val # Fallback if just a raw path string
      return str(path).strip("'\"") if path else None
+
+# --- NEW FUNCTION DEFINITION ---
+def strip_html_tags(html_string: Optional[str]) -> str:
+    """Removes HTML tags from a string."""
+    if not isinstance(html_string, str):
+        return str(html_string) # Return string representation of non-strings
+    # Regex to remove anything that looks like an HTML tag <...>
+    # Also decode common entities that might remain after stripping tags
+    text = re.sub(r'<[^>]+>', '', html_string)
+    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"').replace('&#39;', "'")
+    return text
+# --- END NEW FUNCTION DEFINITION ---
 
 def format_statistics(stats: Dict[str, Any]) -> str:
     """Formats parsing statistics into a Markdown string."""
