@@ -467,58 +467,52 @@ class DataTracer:
          return span("bp-info", "(No Default)")
 
     def _format_literal_value(self, pin: Pin, val_str: str) -> str:
-        category = pin.category; sub_category = pin.sub_category; sub_category_obj = pin.sub_category_object
+        """Formats literal values with proper escaping."""
+        category = pin.category
+        sub_category = pin.sub_category
+        sub_category_obj = pin.sub_category_object
+        
         val_str = str(val_str).strip()
-        if len(val_str) >= 2 and val_str.startswith('"') and val_str.endswith('"'): val_str = val_str[1:-1]
-        elif len(val_str) >= 2 and val_str.startswith("'") and val_str.endswith("'"): val_str = val_str[1:-1]
-
+        
+        # Remove quotes if they exist at start and end
+        if len(val_str) >= 2:
+            if val_str.startswith('"') and val_str.endswith('"'):
+                val_str = val_str[1:-1]
+            elif val_str.startswith("'") and val_str.endswith("'"):
+                val_str = val_str[1:-1]
+        
+        # Escape single quotes for span
+        escaped_val_str = val_str.replace("'", r"\'")
+        
         if category == 'bool': 
-            return span("bp-literal-bool", val_str.lower())
+            return span("bp-literal-bool", escaped_val_str.lower())
+        
         if category in ['byte', 'int', 'int64']:
             if sub_category_obj and ('Enum' in sub_category_obj or sub_category_obj.endswith('_UENUM')):
                 enum_type = extract_simple_name_from_path(sub_category_obj) or "Enum"
-                enum_val_str = val_str.split("::")[-1].split('.')[-1]
+                enum_val_str = escaped_val_str.split("::")[-1].split('.')[-1]
                 return f"{span('bp-enum-type', f'`{enum_type}`')}::{span('bp-enum-value', f'`{enum_val_str}`')}"
             try: 
-                return span("bp-literal-number", str(int(float(val_str))))
+                return span("bp-literal-number", str(int(float(escaped_val_str))))
             except (ValueError, TypeError): 
-                return span("bp-literal-unknown", val_str)
+                return span("bp-literal-unknown", escaped_val_str)
+        
         if category in ['real', 'float', 'double']:
             try:
-                num_val = float(val_str)
+                num_val = float(escaped_val_str)
                 if num_val.is_integer(): 
                     return span("bp-literal-number", str(int(num_val)))
                 formatted = f"{num_val:.4f}".rstrip('0').rstrip('.')
                 return span("bp-literal-number", formatted if formatted and formatted != '-' else '0.0')
             except (ValueError, TypeError): 
-                return span("bp-literal-unknown", val_str)
+                return span("bp-literal-unknown", escaped_val_str)
+        
         if category in ['string', 'text']: 
-            return span("bp-literal-string", f"'{val_str.replace("'", "\\'")}'")
+            return span("bp-literal-string", f"'{escaped_val_str}'")
+        
         if category == 'name': 
-            return span("bp-literal-name", "`None`" if val_str.lower() == 'none' else f"`{val_str}`")
-        if category == 'struct':
-            struct_type_name = extract_simple_name_from_path(sub_category_obj) or 'Struct'
-            if val_str.startswith('(') and val_str.endswith(')'):
-                inner_val = val_str[1:-1]
-                if re.match(r'X=[\d.-]+,Y=[\d.-]+,Z=[\d.-]+', inner_val, re.I): 
-                    return f"{span('bp-struct-kw', 'Vector')}({span('bp-struct-val', inner_val)})"
-                if re.match(r'X=[\d.-]+,Y=[\d.-]+$', inner_val, re.I): 
-                    return f"{span('bp-struct-kw', 'Vector2D')}({span('bp-struct-val', inner_val)})"
-                if re.match(r'(Pitch|P)=[\d.-]+,(Yaw|Y)=[\d.-]+,(Roll|R)=[\d.-]+', inner_val, re.I): 
-                    return f"{span('bp-struct-kw', 'Rotator')}({span('bp-struct-val', inner_val)})"
-                if re.match(r'R=[\d.-]+,G=[\d.-]+,B=[\d.-]+,A=[\d.-]+', inner_val, re.I): 
-                    return f"{span('bp-struct-kw', 'Color')}({span('bp-struct-val', inner_val)})"
-                tag_match = re.match(r'TagName="?([^"]*)"?', inner_val, re.I)
-                if tag_match and struct_type_name == 'GameplayTag': 
-                    return f"{span('bp-struct-kw', 'Tag')}({span('bp-struct-val', f'`{tag_match.group(1)}`')})"
-                return f"{span('bp-keyword', 'Make')}<{span('bp-data-type', f'`{struct_type_name}`')}>({span('bp-struct-val', inner_val)})"
-            return f"{span('bp-keyword', 'Make')}<{span('bp-data-type', f'`{struct_type_name}`')}>({span('bp-struct-val', val_str)})" if val_str else f"{span('bp-keyword', 'Make')}<{span('bp-data-type', f'`{struct_type_name}`')}>()"
-        if category in ['object', 'interface', 'class', 'asset', 'assetclass', 'softclass', 'softobject']:
-             obj_name = extract_simple_name_from_path(val_str)
-             obj_name_str = f"`{obj_name}`" if obj_name and obj_name.lower() != 'none' else "`None`"
-             return span("bp-literal-object", obj_name_str)
-
-        return span("bp-literal-unknown", val_str)
+            return span("bp-literal-name", "`None`" if escaped_val_str.lower() == 'none' else f"`{escaped_val_str}`")
+        
 
     # --- _is_trivial_default remains the same ---
     def _is_trivial_default(self, pin: Pin) -> bool:
