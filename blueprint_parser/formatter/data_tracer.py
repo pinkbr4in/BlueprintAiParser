@@ -493,7 +493,7 @@ class DataTracer:
             except (ValueError, TypeError): 
                 return span("bp-literal-unknown", val_str)
         if category in ['string', 'text']: 
-            return span("bp-literal-string", f"'{val_str.replace(r"'", r"\'")}'")
+            return span("bp-literal-string", f"'{val_str.replace("'", "\\'")}'")
         if category == 'name': 
             return span("bp-literal-name", "`None`" if val_str.lower() == 'none' else f"`{val_str}`")
         if category == 'struct':
