@@ -363,7 +363,7 @@ class BlueprintParser:
             if node.macro_type not in known_macro_names:
                 path_lower = (node.macro_graph_path or "").lower()
                 for name in known_macro_names:
-                     if name.lower() in path_lower: node.macro_type = name; break
+                    if name.lower() in path_lower: node.macro_type = name; break
             node.is_pure_call = not any(p.is_execution() for p in node.pins.values())
         elif isinstance(node, (K2Node_AddDelegate, K2Node_AssignDelegate, K2Node_RemoveDelegate, K2Node_ClearDelegate, K2Node_CallDelegate)):
             delegate_ref = node.raw_properties.get("DelegateReference")
@@ -503,6 +503,15 @@ class BlueprintParser:
 
                 if not pin.linked_to_guids: continue
 
+                # --- TARGETED DEBUG for Delegate Pin ---
+                is_problematic_pin = (node.guid == "BCEAE13F45C328CCADAFA1B24DB1F55B" and pin.id == "FAE145A74DA248B07A7A54A701BAEF26")
+                if ENABLE_PARSER_DEBUG and is_problematic_pin:
+                     print(f"\n--- DEBUG: Processing Problematic Pin ---", file=sys.stderr)
+                     print(f"  Node: {node.name} ({node.guid[:8]})", file=sys.stderr)
+                     print(f"  Pin: {pin.name} ({pin.id})", file=sys.stderr)
+                     print(f"  Raw LinkedTo Data: {pin.linked_to_guids}", file=sys.stderr)
+                # --- END DEBUG ---
+
                 # if ENABLE_PARSER_DEBUG: print(f"\n   Node '{node.name}' ({node_guid[:8]}): Pin '{pin.name}' ({pin_id})", file=sys.stderr)
 
                 for target_link_info in pin.linked_to_guids:
@@ -512,6 +521,12 @@ class BlueprintParser:
                         continue
 
                     target_node_ref, target_pin_id_ref = target_link_info
+
+                    # --- DEBUG ---
+                    if ENABLE_PARSER_DEBUG and is_problematic_pin:
+                        print(f"    Attempting link to: Node Ref='{target_node_ref}', Pin Ref='{target_pin_id_ref}'", file=sys.stderr)
+                    # --- END DEBUG ---
+
                     # if ENABLE_PARSER_DEBUG: print(f"     Attempting link to: Node Ref='{target_node_ref}', Pin Ref='{target_pin_id_ref}'", file=sys.stderr)
 
                     target_node: Optional[Node] = None
@@ -522,17 +537,38 @@ class BlueprintParser:
                     if resolved_guid_from_name:
                         actual_target_guid = resolved_guid_from_name
                         target_node = self.nodes.get(actual_target_guid) or self.comments.get(actual_target_guid) # Check both nodes and comments
+                        # --- DEBUG ---
+                        if ENABLE_PARSER_DEBUG and is_problematic_pin:
+                            print(f"      Resolved '{target_node_ref}' via name_map to GUID '{actual_target_guid}'. Node Found: {target_node is not None}", file=sys.stderr)
+                        # --- END DEBUG ---
                         # if ENABLE_PARSER_DEBUG: print(f"       Node Ref '{target_node_ref}' found in name map -> GUID '{actual_target_guid}'. Node/Comment object found: {target_node is not None}", file=sys.stderr)
                     else:
                         # If not found by name, assume the ref *is* the GUID
                         actual_target_guid = target_node_ref
                         target_node = self.nodes.get(actual_target_guid) or self.comments.get(actual_target_guid) # Check both nodes and comments
+                        # --- DEBUG ---
+                        if ENABLE_PARSER_DEBUG and is_problematic_pin:
+                             print(f"      Treating '{target_node_ref}' as GUID. Node Found: {target_node is not None}", file=sys.stderr)
+                        # --- END DEBUG ---
                         # if ENABLE_PARSER_DEBUG: print(f"       Node Ref '{target_node_ref}' not in name map. Treating as GUID. Node/Comment object found: {target_node is not None}", file=sys.stderr)
 
                     if target_node:
                         target_pin = target_node.pins.get(target_pin_id_ref)
 
+                        # --- DEBUG ---
+                        if ENABLE_PARSER_DEBUG and is_problematic_pin:
+                             print(f"      Target Node '{target_node.name}' found. Searching for Pin ID '{target_pin_id_ref}'. Pin Found: {target_pin is not None}", file=sys.stderr)
+                             # --- Removed redundant SUCCESS print here ---
+                             if not target_pin: # Failure print moved here
+                                  print(f"        FAILURE: Pin ID '{target_pin_id_ref}' not found on target node.", file=sys.stderr)
+                        # --- END DEBUG ---
+
                         if target_pin:
+                            # --- START OF NEW DEBUG BLOCK 1 ---
+                            if ENABLE_PARSER_DEBUG and is_problematic_pin:
+                                print(f"        >>> SUCCESS: Preparing to link {pin.name}({pin.id}) on {node.name} TO {target_pin.name}({target_pin.id}) on {target_node.name}", file=sys.stderr) # Added file=sys.stderr
+                            # --- END OF NEW DEBUG BLOCK 1 ---
+
                             # if ENABLE_PARSER_DEBUG: print(f"       Target Pin FOUND: '{target_pin.name}' ({target_pin_id_ref}) within Node/Comment '{target_node.name}'. SUCCESS.", file=sys.stderr)
                             if target_pin not in pin.linked_pins:
                                 pin.linked_pins.append(target_pin)
@@ -540,10 +576,19 @@ class BlueprintParser:
                             if pin not in target_pin.source_pin_for:
                                 target_pin.source_pin_for.append(pin)
                                 # if ENABLE_PARSER_DEBUG: print(f"         Appended source link to target pin '{target_pin.name}'. New source_pin_for count: {len(target_pin.source_pin_for)}", file=sys.stderr)
+
+                            # --- START OF NEW DEBUG BLOCK 2 ---
+                            if ENABLE_PARSER_DEBUG and is_problematic_pin:
+                                print(f"        >>> LINKED: pin.linked_pins count: {len(pin.linked_pins)}, target_pin.source_pin_for count: {len(target_pin.source_pin_for)}", file=sys.stderr) # Added file=sys.stderr
+                                # Optionally print the actual objects after linking
+                                # print(f"        >>> pin.linked_pins[0].id = {pin.linked_pins[0].id}")
+                                # print(f"        >>> target_pin.source_pin_for[0].id = {target_pin.source_pin_for[-1].id}") # Check last added source
+                            # --- END OF NEW DEBUG BLOCK 2 ---
                             resolved_links += 1
                         else:
+                            # --- Moved unresolved pin logic handling up into the debug block ---
                             unresolved_pin_lookups += 1
-                            if ENABLE_PARSER_DEBUG:
+                            if ENABLE_PARSER_DEBUG and not is_problematic_pin: # Only print general failure if not the specific problematic pin (which has its own failure message)
                                 print(f"       Target Pin ID '{target_pin_id_ref}' NOT FOUND within pins of target node/comment '{target_node.name}' ({target_node.guid[:8]}). LOOKUP FAILURE.", file=sys.stderr)
                                 target_pin_ids_on_node = list(target_node.pins.keys())
                                 print(f"         Available Pin IDs on target: {target_pin_ids_on_node}", file=sys.stderr)
@@ -552,8 +597,8 @@ class BlueprintParser:
                         if ENABLE_PARSER_DEBUG: print(f"       Target Node/Comment NOT FOUND using ref '{target_node_ref}' (resolved/tried GUID: '{actual_target_guid}'). NAME/GUID LOOKUP FAILURE.", file=sys.stderr)
                         # Check if name lookup succeeded but the node object itself is missing (should be rare)
                         if resolved_guid_from_name and resolved_guid_from_name not in self.nodes and resolved_guid_from_name not in self.comments:
-                                unresolved_missing_nodes += 1
-                                if ENABLE_PARSER_DEBUG: print(f"         (Name lookup succeeded, but node/comment object missing from dictionaries)", file=sys.stderr)
+                            unresolved_missing_nodes += 1
+                            if ENABLE_PARSER_DEBUG: print(f"         (Name lookup succeeded, but node/comment object missing from dictionaries)", file=sys.stderr)
 
 
         self.stats["links_resolved"] = resolved_links

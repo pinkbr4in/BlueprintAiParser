@@ -250,26 +250,40 @@ class NodeFormatter:
     # --- START OF MODIFIED _format_call_function ---
     def _format_call_function(self, node: K2Node_CallFunction, visited_data_pins: Set[str]) -> str:
         raw_func_name = node.function_name or 'UnknownFunction'
+        func_name = raw_func_name # Keep raw name for checks
 
-        # --- ADD K2NODE_ PREFIX REMOVAL ---
-        func_name = raw_func_name
+        # --- Apply K2NODE_ PREFIX REMOVAL ---
         if func_name.startswith("K2Node_"):
             func_name = func_name[len("K2Node_"):]
         # --- END PREFIX REMOVAL ---
 
+        # --- NEW: Specific Name Override for Timer ---
+        display_func_name = func_name # Name used for display
+        if raw_func_name == "K2_SetTimerDelegate":
+             display_func_name = "Set Timer by Delegate" # More user-friendly name
+        elif raw_func_name == "K2_SetTimer": # Handle other timer versions if needed
+             display_func_name = "Set Timer by Function Name"
+        elif raw_func_name == "ClearTimer": # Handle clear timer
+             display_func_name = "Clear Timer by Handle"
+        # --- END Specific Name Override ---
+
+        # --- (Keep rest of the logic for target, args, return type, etc.) ---
         target_pin = node.get_target_pin()
-        target_str_raw = self.data_tracer._trace_target_pin(target_pin, visited_data_pins.copy())
+        # Pass copy for recursive calls
+        target_str_raw = self.data_tracer._trace_target_pin(target_pin, visited_data_pins.copy()) if target_pin else span("bp-var", "`self`")
+        # Pass copy for recursive calls
         args_str = self._format_arguments(node, visited_data_pins.copy())
         latent_info = span("bp-modifier", " [(Latent)]") if node.is_latent else ""
         dev_only = span("bp-modifier", " [(Dev Only)]") if getattr(node, 'is_dev_only', False) else ""
         return_pin = next((p for p in node.get_output_pins() if not p.is_execution() and p.name == "ReturnValue"), None)
         return_type_sig = return_pin.get_type_signature() if return_pin else None
-        return_type = span("bp-data-type", f" -> `{return_type_sig}`") if return_type_sig else ""
+        # Avoid showing '-> struct' for timer handle as the trace provides more info
+        return_type = span("bp-data-type", f" -> `{return_type_sig}`") if return_type_sig and raw_func_name != "K2_SetTimerDelegate" else ""
 
-        # Use the cleaned func_name
-        func_name_span = span("bp-func-name", f"`{func_name}`")
+        # Use the display_func_name
+        func_name_span = span("bp-func-name", f"`{display_func_name}`")
 
-        # Determine if this is a static call (using cleaned target logic from previous steps)
+        # Determine if it's a static call (using cleaned target logic from previous steps)
         is_static_call = False
         if target_str_raw:
             # Regex to match various forms of class/default object references, excluding 'self'
@@ -300,8 +314,11 @@ class NodeFormatter:
             elif class_only_match: class_name = class_only_match.group(1)
 
             # Optionally add ClassName.FunctionName if the class isn't a common library
-            if class_name and class_name not in ['KismetSystemLibrary', 'KismetMathLibrary', 'GameplayStatics', 'KismetStringLibrary', 'KismetArrayLibrary']:
+            # Hide common static libraries
+            if class_name and class_name not in ['KismetSystemLibrary', 'KismetMathLibrary', 'GameplayStatics', 'KismetStringLibrary', 'KismetArrayLibrary', 'WidgetBlueprintLibrary']:
                  class_name_span_str = f"{span('bp-class-name', f'`{class_name}`')}." # Note the added dot
+            else:
+                 class_name_span_str = "" # Hide prefix
 
             return f"{keyword} {class_name_span_str}{func_name_span}{args_str}{return_type}{latent_info}{dev_only}"
         else:
