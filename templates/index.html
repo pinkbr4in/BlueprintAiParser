@@ -8,213 +8,89 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='blueprint-parser.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='blueprint-highlight.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <style>
+        /* Styles from previous version (keep these) */
+        .processing-indicator { padding: 15px; background-color: #e2f3fe; border: 1px solid #bde0fe; color: #0c5460; border-radius: 4px; margin-bottom: 20px; text-align: center; display: none; justify-content: center; align-items: center; }
+        .processing-indicator .spinner-border { width: 1.5rem; height: 1.5rem; vertical-align: -0.25em; margin-right: 8px; }
+        #results-area { display: none; margin-top: 20px; }
+        #error-display { display: none; margin-top: 15px; }
+        /* Ensure copy buttons are hidden initially */
+        #human .btn, #ai .btn { display: none; }
+        /* Add styles for stats summary if needed */
+        .stats-summary { border: 1px solid #eee; padding: 10px; background-color: #f9f9f9; border-radius: 4px; font-size: 0.9em; }
+        .markdown-body table { /* Basic table styling if needed */
+             border-collapse: collapse; width: 100%; margin-bottom: 1rem;
+        }
+        .markdown-body th, .markdown-body td {
+            padding: 8px; border: 1px solid #ddd; text-align: left;
+        }
+         .markdown-body th { background-color: #f2f2f2; }
+    </style>
 </head>
 <body>
     <div class="container mt-4 mb-5">
         <h1>Unreal Engine Blueprint Parser</h1>
         <p>Paste the raw text copied from the Blueprint editor below and click "Parse Blueprint".</p>
 
-        <form method="post" class="mb-4" id="blueprint-form"> {# Added ID #}
-                  
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">    
-
+        <form class="mb-4" id="blueprint-form">
+            <input type="hidden" name="csrf_token" id="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label for="blueprintText">Paste Blueprint Text:</label>
-                <textarea id="blueprintText" name="blueprint_text" rows="30" class="form-control code-input" placeholder="Begin Object Class=... End Object">{{ raw_blueprint_text }}</textarea>
+                <textarea id="blueprintText" name="blueprint_text" rows="15" class="form-control code-input" placeholder="Begin Object Class=... End Object">{{ raw_blueprint_text }}</textarea>
             </div>
-
-            {# Added Loading Overlay #}
-            <div id="loading-overlay" style="display: none; justify-content: center; align-items: center; flex-direction: column;">
-                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
-                    <span class="sr-only">Loading...</span>
-                </div>
-                <p class="mt-2" style="color: var(--text-primary);">Processing Blueprint...</p> {# Added style for visibility #}
-            </div>
-
-            <button type="submit" id="parse-button" class="btn btn-success btn-lg">Parse Blueprint</button> {# Added ID #}
+            <button type="submit" id="parse-button" class="btn btn-success btn-lg">Parse Blueprint</button>
         </form>
 
-        {% if error_message %}
-            <div class="alert alert-danger" role="alert">
-                {# Preserve multi-line errors/warnings #}
-                <strong>Error:</strong>
-                {% for line in error_message.split('\n') %}
-                    {{ line }}<br>
-                {% endfor %}
-            </div>
-        {% endif %}
+        <div id="error-display" class="alert" role="alert"></div>
+        <div id="processing-indicator" class="processing-indicator" role="status">
+            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+            <span id="processing-message">Processing Blueprint...</span>
+        </div>
 
-        {% if blueprint_output or ai_output %}
-            <div class="row">
-                <div class="col-md-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <ul class="nav nav-tabs card-header-tabs" id="outputTabs" role="tablist">
-                                <li class="nav-item">
-                                    <a class="nav-link active" id="human-tab" data-toggle="tab" href="#human" role="tab" aria-controls="human" aria-selected="true">Human-Readable</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" id="ai-tab" data-toggle="tab" href="#ai" role="tab" aria-controls="ai" aria-selected="false">AI-Readable (JSON)</a>
-                                </li>
-                            </ul>
-                        </div>
-                        <div class="card-body">
-                            <div class="tab-content" id="outputTabContent">
-                                <div class="tab-pane fade show active" id="human" role="tabpanel" aria-labelledby="human-tab">
-                                     {% if stats_summary %}
-                                         <div class="stats-summary mb-3">
-                                             {{ stats_summary | markdown | safe }}
-                                         </div>
-                                     {% endif %}
-                                    {% if blueprint_output %}
-                                        <button id="copy-text-btn" class="btn btn-secondary btn-sm mb-2 float-right">Copy Text</button>
-                                        <div style="clear:both;"></div> <div class="markdown-body" id="human-readable-content">
-                                            {{ blueprint_output | markdown | safe }}
-                                        </div>
-                                    {% elif request.method == 'POST' and not error_message %}
-                                        <p class="text-muted">No human-readable output generated.</p>
-                                    {% endif %}
-                                </div>
-                                <div class="tab-pane fade" id="ai" role="tabpanel" aria-labelledby="ai-tab">
-                                    {% if ai_output %}
-                                        <button id="copy-json-btn" class="btn btn-secondary btn-sm mb-2 float-right">Copy JSON</button>
-                                        <div style="clear:both;"></div> <pre><code class="language-json" id="ai-readable-content">{{ ai_output }}</code></pre>
-                                    {% elif request.method == 'POST' and not error_message %}
-                                        <p class="text-muted">No AI-readable output generated.</p>
-                                    {% else %}
-                                        <p class="text-muted">AI-readable JSON output will appear here after parsing.</p>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        {% elif request.method == 'POST' and not error_message %}
-             <p class="text-muted">No output generated. Please check the input text.</p>
-        {% else %}
-             <p class="text-muted">Results will appear here after parsing.</p>
-        {% endif %}
+        <div id="results-area">
+             <div class="row">
+                 <div class="col-md-12">
+                     <div class="card">
+                         <div class="card-header">
+                             <ul class="nav nav-tabs card-header-tabs" id="outputTabs" role="tablist">
+                                 <li class="nav-item"><a class="nav-link active" id="human-tab" data-toggle="tab" href="#human" role="tab" aria-controls="human" aria-selected="true">Human-Readable</a></li>
+                                 <li class="nav-item"><a class="nav-link" id="ai-tab" data-toggle="tab" href="#ai" role="tab" aria-controls="ai" aria-selected="false">AI-Readable (JSON)</a></li>
+                             </ul>
+                         </div>
+                         <div class="card-body">
+                             <div class="tab-content" id="outputTabContent">
+                                 <div class="tab-pane fade show active" id="human" role="tabpanel" aria-labelledby="human-tab">
+                                     <div id="stats-summary-content" class="stats-summary mb-3" style="display: none;"></div>
+                                     <button id="copy-text-btn" class="btn btn-secondary btn-sm mb-2 float-right">Copy Text</button>
+                                     <div style="clear:both;"></div>
+                                     <div class="markdown-body" id="human-readable-content">
+                                         <p class="text-muted initial-placeholder">Results will appear here after parsing.</p>
+                                     </div>
+                                 </div>
+                                 <div class="tab-pane fade" id="ai" role="tabpanel" aria-labelledby="ai-tab">
+                                     <button id="copy-json-btn" class="btn btn-secondary btn-sm mb-2 float-right">Copy JSON</button>
+                                     <div style="clear:both;"></div>
+                                     <pre id="ai-code-container" style="display: none;"><code class="language-json" id="ai-readable-content"></code></pre>
+                                     <p id="ai-placeholder" class="text-muted initial-placeholder">AI-readable JSON output will appear here after parsing.</p>
+                                 </div>
+                             </div>
+                         </div>
+                     </div>
+                 </div>
+             </div>
+         </div>
     </div>
 
+    <!-- Core Libraries -->
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.min.js"></script>
-
-    <script>
-      // Set up our configuration before loading highlight.js
-      window.hljs_ignore_blueprint = true;
-    </script>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
-
-    <script>
-      // Configure highlight.js to ignore blueprint code blocks
-      document.addEventListener('DOMContentLoaded', function() {
-        // Store original highlightAll function
-        const originalHighlightAll = hljs.highlightAll;
-
-        // Override highlightAll to skip blueprint blocks
-        hljs.highlightAll = function(options) {
-          // First, mark all blueprint blocks to be skipped
-          document.querySelectorAll('pre.blueprint code').forEach(block => {
-            block.setAttribute('data-nohighlight', 'true');
-            // If already highlighted by highlight.js, restore original content
-            if(block.classList.contains('hljs')) {
-              const originalContent = block.getAttribute('data-original-content');
-              if(originalContent) {
-                block.innerHTML = originalContent;
-              }
-              block.classList.remove('hljs', 'language-markdown', 'language-javascript'); // Add any other languages it might guess
-              block.removeAttribute('data-highlighted');
-            }
-          });
-
-          // Call the original function
-          originalHighlightAll(options);
-
-          // After highlighting, apply our own styles to blueprint blocks
-          fixBlueprintStyling();
-        };
-
-        function fixBlueprintStyling() {
-          document.querySelectorAll('pre.blueprint code').forEach(block => {
-            block.querySelectorAll('span[class^="bp-"]').forEach(span => {
-              span.style.display = 'inline'; // Ensure spans are inline
-              // Apply colors based on class using CSS variables if possible, or fallback
-              const styles = getComputedStyle(document.documentElement);
-              if (span.classList.contains('bp-keyword')) {
-                  span.style.color = styles.getPropertyValue('--bp-keyword-color').trim() || '#c792ea';
-                  span.style.fontWeight = 'bold';
-              } else if (span.classList.contains('bp-event-name')) {
-                  span.style.color = styles.getPropertyValue('--bp-event-name-color').trim() || '#ffcb6b';
-                  span.style.fontWeight = 'bold';
-              } else if (span.classList.contains('bp-var')) {
-                  span.style.color = styles.getPropertyValue('--bp-var-color').trim() || '#79d0ff';
-              } else if (span.classList.contains('bp-func-name')) {
-                  span.style.color = styles.getPropertyValue('--bp-func-name-color').trim() || '#c792ea'; // Often same as keyword
-                  span.style.fontWeight = 'bold';
-              } else if (span.classList.contains('bp-comment')) {
-                   span.style.color = styles.getPropertyValue('--bp-comment-color').trim() || '#6a9955'; // Example comment color
-                   span.style.fontStyle = 'italic';
-               } else if (span.classList.contains('bp-string')) {
-                   span.style.color = styles.getPropertyValue('--bp-string-color').trim() || '#ce9178'; // Example string color
-               } else if (span.classList.contains('bp-number')) {
-                    span.style.color = styles.getPropertyValue('--bp-number-color').trim() || '#b5cea8'; // Example number color
-                }
-              // Add more class-specific inline styles as needed
-            });
-          });
-        }
-      });
-    </script>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
+    
+    <!-- Custom Scripts -->
     <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Make sure highlightAll runs *after* our override is set
-            // It might be called automatically, but calling it here ensures JSON gets highlighted
-            // if it wasn't already covered by the automatic call or our override.
-             if (typeof hljs !== 'undefined' && hljs.highlightAll) {
-                 hljs.highlightAll();
-             }
-
-            // Function to handle copy button clicks
-            function setupCopyButton(buttonId, contentId) {
-                const copyBtn = document.getElementById(buttonId);
-                if (copyBtn) {
-                    copyBtn.addEventListener('click', () => {
-                        const contentElement = document.getElementById(contentId);
-                        if (contentElement) {
-                            // For <pre><code> blocks, textContent is usually best
-                            const textToCopy = contentElement.textContent;
-                            navigator.clipboard.writeText(textToCopy).then(() => {
-                                const originalText = copyBtn.textContent;
-                                copyBtn.textContent = 'Copied!';
-                                copyBtn.disabled = true;
-                                setTimeout(() => {
-                                    copyBtn.textContent = originalText;
-                                    copyBtn.disabled = false;
-                                }, 2000);
-                            }).catch(err => {
-                                console.error('Failed to copy: ', err);
-                                alert('Failed to copy. Try manually selecting the text.');
-                            });
-                        } else {
-                            console.error(`Content element with ID ${contentId} not found.`);
-                        }
-                    });
-                } else {
-                     console.warn(`Copy button with ID ${buttonId} not found.`);
-                 }
-            }
-
-            // Setup both copy buttons
-            setupCopyButton('copy-text-btn', 'human-readable-content');
-            setupCopyButton('copy-json-btn', 'ai-readable-content');
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/chunked-upload.js') }}"></script>
 </body>
 </html>

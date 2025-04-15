@@ -6,6 +6,7 @@ from logging.handlers import RotatingFileHandler
 from flask import Flask
 from config import config # Assuming config.py is in the same directory or install path
 from flask_wtf.csrf import CSRFProtect # <-- Import CSRFProtect
+from celery_app import celery # <--- IMPORTED Celery instance
 
 # --- Optional: Add sys.path modification if blueprint_parser isn't installed as a package ---
 # Ensure this runs only once if needed, e.g., by checking if path already exists
@@ -15,6 +16,20 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
     print(f"INFO: Added {project_root} to sys.path for local imports.")
 # -------------------------------------------------------------------------------------------
+
+# --- Import chunked upload routes ---
+try:
+    from chunked_upload import add_chunked_upload_routes
+    CHUNKED_UPLOAD_ENABLED = True
+    # Optional: Add an initial log message here if desired, but logger might not be ready yet
+    # print("INFO: Found chunked_upload module.")
+except ImportError:
+    add_chunked_upload_routes = None
+    CHUNKED_UPLOAD_ENABLED = False
+    # Use print for early warnings before logger might be configured
+    print("WARNING: chunked_upload.py not found or cannot be imported. Chunked uploads will be disabled.")
+# --- End Import ---
+
 
 # --- Create a CSRF object that can be imported elsewhere ---
 # Instantiate OUTSIDE the factory
@@ -92,6 +107,39 @@ def create_app(config_name=None): # Accept config_name, default handled below
     # --- End Logging Config ---
 
 
+    # --- Initialize Celery ---  <--- ADDED THIS BLOCK ---
+    try:
+        # Update Celery config using the config loaded into the Flask app
+        # This ensures Celery uses the correct broker/backend URLs defined for the env
+        celery.conf.update(app.config)
+        # Use .get with default for safer logging in case keys aren't in app.config
+        app.logger.info(f"Celery broker: {celery.conf.get('CELERY_BROKER_URL', 'Not Set in app.config')}")
+        app.logger.info(f"Celery backend: {celery.conf.get('CELERY_RESULT_BACKEND', 'Not Set in app.config')}")
+
+        # Define Task subclass to ensure Flask app context is available
+        class ContextTask(celery.Task):
+            abstract = True # Ensure it's an abstract base class
+            def __call__(self, *args, **kwargs):
+                # The app context will always be available when the task is *called*
+                # if it's set up within the factory like this.
+                with app.app_context():
+                    return self.run(*args, **kwargs)
+
+        # Set the custom Task class as the default for this Celery instance
+        celery.Task = ContextTask
+        app.logger.info("Celery Task context configured.")
+
+        # Optional: Store the celery instance in Flask extensions
+        app.extensions["celery"] = celery
+
+    except Exception as celery_e:
+       app.logger.critical(f"Failed to initialize or configure Celery: {celery_e}", exc_info=True)
+       # Depending on criticality, you might want to sys.exit(1) here too
+       # If Celery is essential, uncomment the line below:
+       # sys.exit(1)
+    # --- End Celery Init ---
+
+
     # --- Import and Configure Parser Debug Flags INSIDE create_app ---
     # Define variables upfront to check existence after try block
     bp_parser_module = None
@@ -145,12 +193,35 @@ def create_app(config_name=None): # Accept config_name, default handled below
 
     # --- Register Routes ---
     try:
+        # --- Register Main Routes ---
         from routes import register_routes
-        register_routes(app)
-        app.logger.info("Routes registered successfully.")
+        register_routes(app) # Register main routes
+        app.logger.info("Main routes registered successfully.")
+
+        # --- Register Chunked Upload Routes --- # <--- NEW SECTION ADDED HERE ---
+        if add_chunked_upload_routes and CHUNKED_UPLOAD_ENABLED:
+            try: # Add inner try/except for the registration call itself
+                add_chunked_upload_routes(app) # Register chunked routes
+                app.logger.info("Chunked upload routes registered successfully.")
+            except Exception as chunk_reg_e:
+                app.logger.error(f"Error registering chunked upload routes: {chunk_reg_e}", exc_info=True)
+                # Decide if this is critical. Probably not, so just log.
+        elif not add_chunked_upload_routes:
+             # This condition covers the case where the import failed earlier (at the top level)
+             app.logger.warning("Chunked upload module not imported. Chunked upload routes *NOT* registered.")
+        else:
+             # This condition means import succeeded, but maybe CHUNKED_UPLOAD_ENABLED was manually set False
+             # Or potentially add_chunked_upload_routes is None for some other reason.
+             app.logger.warning("Chunked upload registration skipped (CHUNKED_UPLOAD_ENABLED is False or function unavailable).")
+        # --- End Register Chunked Routes ---
+
     except ImportError as e:
-         app.logger.critical(f"Failed to import or register routes from routes.py: {e}", exc_info=True)
-         raise RuntimeError("Could not register application routes.") from e # Re-raise critical error
+        # This catches import errors for the *main* routes.py
+        app.logger.critical(f"Failed to import or register main routes from routes.py: {e}", exc_info=True)
+        raise RuntimeError("Could not register application routes.") from e # Re-raise critical error
+    except Exception as route_reg_e: # Catch potential errors during main route registration too
+        app.logger.critical(f"An error occurred during route registration: {route_reg_e}", exc_info=True)
+        raise RuntimeError("Could not register application routes.") from route_reg_e
     # --- End Routes ---
 
     app.logger.info("Application setup complete.")
