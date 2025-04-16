@@ -73,10 +73,30 @@ def create_app(config_name=None): # Accept config_name, default handled below
     log_format = '%(asctime)s %(levelname)s: %(message)s [%(pathname)s:%(lineno)d]'
 
     # Clear default handlers Flask might add
+    # It's generally safe to keep these lines to ensure clean setup
     app.logger.handlers.clear()
-    app.logger.propagate = False
+    app.logger.propagate = False # Prevent root logger from handling Flask messages
 
     # Configure logging handlers based on environment
+
+    # --- START MODIFICATION --- (This comment is kept for clarity, it was part of the provided block)
+    # Always add a StreamHandler to stderr for visibility in PaaS logs (like Railway/Render)
+    try:
+        stream_handler = logging.StreamHandler(sys.stderr) # Log to stderr
+        stream_handler.setFormatter(logging.Formatter(log_format))
+        # Set level for this handler based on environment
+        stream_handler.setLevel(log_level)
+        app.logger.addHandler(stream_handler)
+        # Use print here BEFORE logger might be fully ready, or log right after adding handler
+        # print("Stderr logging configured.", file=sys.stderr) # Alternative initial confirmation
+        app.logger.info("Stderr logging configured.") # Log confirmation using the configured logger
+    except Exception as stream_log_e:
+         # Use print as logger might not be fully working if this fails
+         print(f"CRITICAL ERROR: Failed to configure stderr logging: {stream_log_e}", file=sys.stderr)
+         # Depending on policy, you might exit here if basic logging fails
+         # sys.exit(1)
+
+    # Additionally, configure file logging for production if not debugging/testing
     if not IS_DEBUG and not app.testing: # Production logging to file
         try:
             log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
@@ -85,25 +105,29 @@ def create_app(config_name=None): # Accept config_name, default handled below
 
             file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5) # 10MB * 5 files
             file_handler.setFormatter(logging.Formatter(log_format))
-            file_handler.setLevel(log_level)
+            # File handler usually logs INFO level even if stream handler logs DEBUG in dev
+            file_handler.setLevel(logging.INFO) # Set file handler level (e.g., INFO)
             app.logger.addHandler(file_handler)
+            app.logger.info("File logging configured for production.") # Log confirmation
+
         except Exception as log_e:
-            print(f"ERROR: Failed to configure file logging: {log_e}", file=sys.stderr)
-            # Fallback to console logging even in production if file logging fails
-            stream_handler = logging.StreamHandler(sys.stderr)
-            stream_handler.setFormatter(logging.Formatter(log_format))
-            stream_handler.setLevel(log_level)
-            app.logger.addHandler(stream_handler)
-            app.logger.error("File logging setup failed, falling back to stream handler.")
+            # Log file setup failure TO STDERR via the already added stream_handler
+            # Ensure the logger exists and has handlers before using it in except block
+            if app.logger and app.logger.hasHandlers():
+                 app.logger.error(f"Failed to configure file logging: {log_e}", exc_info=True)
+            else:
+                 # Fallback to print if logger failed critically before this point
+                 print(f"ERROR: Failed to configure file logging: {log_e}. Logger unavailable.", file=sys.stderr)
+            # No need for fallback stream handler here, as one was already added above
 
-    else: # Development or testing logging (to console)
-        stream_handler = logging.StreamHandler(sys.stderr) # Log to stderr for dev
-        stream_handler.setFormatter(logging.Formatter(log_format))
-        stream_handler.setLevel(log_level)
-        app.logger.addHandler(stream_handler)
+    # --- END MODIFICATION --- (This comment is kept for clarity, it was part of the provided block)
 
-    app.logger.setLevel(log_level) # Set the overall logger level
-    app.logger.info(f'Flask app created with config: {config_name}, Debug: {IS_DEBUG}')
+    app.logger.setLevel(log_level) # Set the overall minimum level for the logger instance
+    # Make sure logger has handlers before logging the final init message
+    if app.logger and app.logger.hasHandlers():
+        app.logger.info(f'Flask app logging initialized. Config: {config_name}, Debug: {IS_DEBUG}, Level: {logging.getLevelName(log_level)}')
+    else:
+        print(f"WARNING: Logger initialization incomplete. Config: {config_name}, Debug: {IS_DEBUG}", file=sys.stderr)
     # --- End Logging Config ---
 
 
@@ -201,11 +225,11 @@ def create_app(config_name=None): # Accept config_name, default handled below
         # --- Register Chunked Upload Routes --- # <--- NEW SECTION ADDED HERE ---
         if add_chunked_upload_routes and CHUNKED_UPLOAD_ENABLED:
             try: # Add inner try/except for the registration call itself
-                add_chunked_upload_routes(app) # Register chunked routes
-                app.logger.info("Chunked upload routes registered successfully.")
+                 add_chunked_upload_routes(app) # Register chunked routes
+                 app.logger.info("Chunked upload routes registered successfully.")
             except Exception as chunk_reg_e:
-                app.logger.error(f"Error registering chunked upload routes: {chunk_reg_e}", exc_info=True)
-                # Decide if this is critical. Probably not, so just log.
+                 app.logger.error(f"Error registering chunked upload routes: {chunk_reg_e}", exc_info=True)
+                 # Decide if this is critical. Probably not, so just log.
         elif not add_chunked_upload_routes:
              # This condition covers the case where the import failed earlier (at the top level)
              app.logger.warning("Chunked upload module not imported. Chunked upload routes *NOT* registered.")
