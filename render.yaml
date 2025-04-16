@@ -1,22 +1,45 @@
-# render.yaml (Corrected Order)
+# render.yaml (Using Environment Group)
 
 # Define Databases FIRST
 databases:
-  - name: blueprint-redis # Matches name used in fromService
+  - name: blueprint-redis # Name used in fromService below
     plan: free
-    databaseName: blueprint_parser_redis # Optional internal name
-    ipAllowList: [] # Allows Render services in the same account
+    databaseName: blueprint_parser_redis
+    ipAllowList: []
 
-# Define Services AFTER Databases
+# Define Environment Groups SECOND
+envGroups:
+  - name: shared-config # Name your group
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: blueprint-redis # Reference the database defined above
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: blueprint-redis
+          property: connectionString # Append /1 in code or UI if needed later
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: blueprint-redis
+          property: connectionString # Append /2 in code or UI if needed later
+      # You could also move R2 config here if desired, but let's keep it simple for now
+
+# Define Services LAST
 services:
   # Web Service (Flask/Gunicorn)
   - type: web
     name: blueprint-parser-web
     env: python
     plan: free
+    envGroup: shared-config # <-- Link to the Environment Group
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn wsgi:application"
     envVars:
+      # Inherits Redis URLs from shared-config group
       - key: PYTHON_VERSION
         value: "3.12"
       - key: FLASK_APP
@@ -25,23 +48,7 @@ services:
         value: "production"
       - key: SECRET_KEY
         generateValue: true
-      # These should now find blueprint-redis because it was defined above
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      - key: CELERY_BROKER_URL
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      # --- R2/S3 Config (Secrets set via UI) ---
+      # --- R2/S3 Config (Set via UI) ---
       - key: R2_ENDPOINT_URL
         value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com"
       - key: R2_BUCKET_NAME
@@ -53,30 +60,16 @@ services:
     name: blueprint-parser-worker
     env: python
     plan: free
+    envGroup: shared-config # <-- Link to the Environment Group
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A celery_app.celery worker --loglevel=info -c 1"
     envVars:
+      # Inherits Redis URLs from shared-config group
       - key: PYTHON_VERSION
         value: "3.12"
       - key: FLASK_ENV
         value: "production"
-      # These should now find blueprint-redis because it was defined above
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      - key: CELERY_BROKER_URL
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      # --- R2/S3 Config (Secrets set via UI) ---
+      # --- R2/S3 Config (Set via UI) ---
       - key: R2_ENDPOINT_URL
         value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com"
       - key: R2_BUCKET_NAME
