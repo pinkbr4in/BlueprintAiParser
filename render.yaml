@@ -1,9 +1,17 @@
-# render.yaml (Corrected Version)
+# render.yaml (Corrected Order)
 
+# Define Databases FIRST
+databases:
+  - name: blueprint-redis # Matches name used in fromService
+    plan: free
+    databaseName: blueprint_parser_redis # Optional internal name
+    ipAllowList: [] # Allows Render services in the same account
+
+# Define Services AFTER Databases
 services:
   # Web Service (Flask/Gunicorn)
   - type: web
-    name: blueprint-parser-web # You can rename this during Blueprint setup if desired
+    name: blueprint-parser-web
     env: python
     plan: free
     buildCommand: "pip install -r requirements.txt"
@@ -17,29 +25,28 @@ services:
         value: "production"
       - key: SECRET_KEY
         generateValue: true
+      # These should now find blueprint-redis because it was defined above
       - key: REDIS_URL
         fromService:
           type: redis
-          name: blueprint-redis # Matches database name below
+          name: blueprint-redis
           property: connectionString
       - key: CELERY_BROKER_URL
         fromService:
           type: redis
           name: blueprint-redis
-          property: connectionString # Append /1 in code or UI if needed
+          property: connectionString
       - key: CELERY_RESULT_BACKEND
         fromService:
           type: redis
           name: blueprint-redis
-          property: connectionString # Append /2 in code or UI if needed
-      # --- R2/S3 Config ---
+          property: connectionString
+      # --- R2/S3 Config (Secrets set via UI) ---
       - key: R2_ENDPOINT_URL
-        value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com" # CORRECTED: Your specific global endpoint
+        value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com"
       - key: R2_BUCKET_NAME
         value: "blueprint-parser-uploads"
-
-      # - key: MAX_CONTENT_SIZE # Optional
-      #   value: "104857600"
+      # R2 Keys are set manually in Render UI Environment Variables
 
   # Worker Service (Celery)
   - type: worker
@@ -53,30 +60,25 @@ services:
         value: "3.12"
       - key: FLASK_ENV
         value: "production"
+      # These should now find blueprint-redis because it was defined above
       - key: REDIS_URL
         fromService:
           type: redis
-          name: blueprint-redis # Matches database name below
+          name: blueprint-redis
           property: connectionString
       - key: CELERY_BROKER_URL
         fromService:
           type: redis
           name: blueprint-redis
-          property: connectionString # Append /1 in code or UI if needed
+          property: connectionString
       - key: CELERY_RESULT_BACKEND
         fromService:
           type: redis
           name: blueprint-redis
-          property: connectionString # Append /2 in code or UI if needed
-      # --- R2/S3 Config ---
+          property: connectionString
+      # --- R2/S3 Config (Secrets set via UI) ---
       - key: R2_ENDPOINT_URL
-        value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com" # Use the GLOBAL endpoint
+        value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com"
       - key: R2_BUCKET_NAME
         value: "blueprint-parser-uploads"
-
-# Redis Instance (Managed by Render)
-databases:
-  - name: blueprint-redis # Matches name used in fromService
-    plan: free
-    databaseName: blueprint_parser_redis # Optional internal name
-    ipAllowList: [] # Allows Render services in the same account
+      # R2 Keys are set manually in Render UI Environment Variables
