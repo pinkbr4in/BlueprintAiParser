@@ -1,100 +1,99 @@
-# render.yaml
+# render.yaml (Corrected Version)
 
 services:
   # Web Service (Flask/Gunicorn)
   - type: web
-    name: blueprint-parser-web
+    name: blueprint-parser-web # You can rename this during Blueprint setup if desired
     env: python
-    plan: free # Start with free, upgrade if needed for profiling larger loads
-    pythonVersion: "3.12" # Or your desired Python version
+    plan: free
+    pythonVersion: "3.12"
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn wsgi:application" # Assumes wsgi.py calls create_app()
+    startCommand: "gunicorn wsgi:application"
     envVars:
-      - key: PYTHON_VERSION # Recommended by Render
+      - key: PYTHON_VERSION
         value: "3.12"
       - key: FLASK_APP
-        value: "wsgi:application" # Or app:create_app() depending on your wsgi.py
+        value: "wsgi:application"
       - key: FLASK_ENV
-        value: "production" # IMPORTANT: Use production settings
+        value: "production"
       - key: SECRET_KEY
-        generateValue: true # Let Render generate a secure secret key
-      - key: REDIS_URL # Value comes from the Redis service below
+        generateValue: true
+      - key: REDIS_URL
         fromService:
           type: redis
-          name: blueprint-redis
+          name: blueprint-redis # Matches database name below
           property: connectionString
-      - key: CELERY_BROKER_URL # Value comes from the Redis service below
+      - key: CELERY_BROKER_URL
         fromService:
           type: redis
           name: blueprint-redis
-          property: connectionString # Use same Redis for broker/backend initially
-      - key: CELERY_RESULT_BACKEND # Value comes from the Redis service below
+          property: connectionString # Append /1 in code or UI if needed
+      - key: CELERY_RESULT_BACKEND
         fromService:
           type: redis
           name: blueprint-redis
-          property: connectionString # Use different DB numbers if needed via URL suffix
-      # --- R2/S3 Credentials - USE SECRET FILES ---
+          property: connectionString # Append /2 in code or UI if needed
+      # --- R2/S3 Config ---
       - key: R2_ENDPOINT_URL
-        value: "https://<your_account_id>.r2.cloudflarestorage.com" # Use the GLOBAL endpoint that worked
+        value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com" # CORRECTED: Your specific global endpoint
       - key: R2_BUCKET_NAME
         value: "blueprint-parser-uploads"
       - key: R2_ACCESS_KEY_ID
         fromSecretFile:
-          name: r2-credentials
-          key: access_key_id
+          name: r2-credentials # Name of the Secret File in Render UI
+          key: R2_ACCESS_KEY_ID # Key *inside* the Secret File content
       - key: R2_SECRET_ACCESS_KEY
         fromSecretFile:
-          name: r2-credentials
-          key: secret_access_key
-      # Optional: Add MAX_CONTENT_LENGTH if different from default
-      # - key: MAX_CONTENT_SIZE
-      #   value: "104857600" # Example: 100MB
+          name: r2-credentials # Name of the Secret File in Render UI
+          key: R2_SECRET_ACCESS_KEY # Key *inside* the Secret File content
+      # - key: MAX_CONTENT_SIZE # Optional
+      #   value: "104857600"
 
   # Worker Service (Celery)
   - type: worker
     name: blueprint-parser-worker
     env: python
-    plan: free # Start with free, match web or upgrade if needed
-    pythonVersion: "3.12" # Match web service
+    plan: free
+    pythonVersion: "3.12"
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "celery -A celery_app.celery worker --loglevel=info -c 1" # Start with 1 concurrent worker
+    startCommand: "celery -A celery_app.celery worker --loglevel=info -c 1"
     envVars:
       - key: PYTHON_VERSION
         value: "3.12"
-      - key: FLASK_ENV # Worker might need this if config loading depends on it
+      - key: FLASK_ENV
         value: "production"
-      - key: REDIS_URL # Value comes from the Redis service below
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: blueprint-redis # Matches database name below
+          property: connectionString
+      - key: CELERY_BROKER_URL
         fromService:
           type: redis
           name: blueprint-redis
-          property: connectionString
-      - key: CELERY_BROKER_URL # Value comes from the Redis service below
+          property: connectionString # Append /1 in code or UI if needed
+      - key: CELERY_RESULT_BACKEND
         fromService:
           type: redis
           name: blueprint-redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND # Value comes from the Redis service below
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      # --- R2/S3 Credentials - USE SECRET FILES ---
+          property: connectionString # Append /2 in code or UI if needed
+      # --- R2/S3 Config ---
       - key: R2_ENDPOINT_URL
         value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com" # Use the GLOBAL endpoint
       - key: R2_BUCKET_NAME
         value: "blueprint-parser-uploads"
       - key: R2_ACCESS_KEY_ID
         fromSecretFile:
-          name: r2-credentials
-          key: access_key_id
+          name: r2-credentials # Name of the Secret File in Render UI
+          key: R2_ACCESS_KEY_ID # Key *inside* the Secret File content
       - key: R2_SECRET_ACCESS_KEY
         fromSecretFile:
-          name: r2-credentials
-          key: secret_access_key
+          name: r2-credentials # Name of the Secret File in Render UI
+          key: R2_SECRET_ACCESS_KEY # Key *inside* the Secret File content
 
 # Redis Instance (Managed by Render)
-databases: # Note: Redis is under 'databases' in render.yaml schema
-  - name: blueprint-redis
-    plan: free # Start with free tier
-    databaseName: blueprint_parser_redis # Internal name for the instance
-    ipAllowList: [] # Allow all Render services in the account, or restrict if needed
+databases:
+  - name: blueprint-redis # Matches name used in fromService
+    plan: free
+    databaseName: blueprint_parser_redis # Optional internal name
+    ipAllowList: [] # Allows Render services in the same account
