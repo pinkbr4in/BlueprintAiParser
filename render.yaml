@@ -37,14 +37,7 @@ services:
         value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com" # CORRECTED: Your specific global endpoint
       - key: R2_BUCKET_NAME
         value: "blueprint-parser-uploads"
-      - key: R2_ACCESS_KEY_ID
-        fromSecretFile:
-          name: r2-credentials # Name of the Secret File in Render UI
-          key: R2_ACCESS_KEY_ID # Key *inside* the Secret File content
-      - key: R2_SECRET_ACCESS_KEY
-        fromSecretFile:
-          name: r2-credentials # Name of the Secret File in Render UI
-          key: R2_SECRET_ACCESS_KEY # Key *inside* the Secret File content
+
       # - key: MAX_CONTENT_SIZE # Optional
       #   value: "104857600"
 
@@ -80,14 +73,6 @@ services:
         value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com" # Use the GLOBAL endpoint
       - key: R2_BUCKET_NAME
         value: "blueprint-parser-uploads"
-      - key: R2_ACCESS_KEY_ID
-        fromSecretFile:
-          name: r2-credentials # Name of the Secret File in Render UI
-          key: R2_ACCESS_KEY_ID # Key *inside* the Secret File content
-      - key: R2_SECRET_ACCESS_KEY
-        fromSecretFile:
-          name: r2-credentials # Name of the Secret File in Render UI
-          key: R2_SECRET_ACCESS_KEY # Key *inside* the Secret File content
 
 # Redis Instance (Managed by Render)
 databases:
