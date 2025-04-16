@@ -1,11 +1,11 @@
-# render.yaml (Corrected Order, Direct fromService links)
+# render.yaml (Temporarily Removing fromService Links)
 
 # Define Databases FIRST
 databases:
-  - name: blueprint-redis # Matches name used in fromService
+  - name: blueprint-redis
     plan: free
-    databaseName: blueprint_parser_redis # Optional internal name
-    ipAllowList: [] # Allows Render services in the same account
+    databaseName: blueprint_parser_redis
+    ipAllowList: []
 
 # Define Services AFTER Databases
 services:
@@ -17,6 +17,7 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn wsgi:application"
     envVars:
+      # --- REDIS URLs REMOVED - Will be added manually via UI ---
       - key: PYTHON_VERSION
         value: "3.12"
       - key: FLASK_APP
@@ -25,22 +26,6 @@ services:
         value: "production"
       - key: SECRET_KEY
         generateValue: true
-      # Direct links to Redis defined above
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      - key: CELERY_BROKER_URL
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
       # --- R2/S3 Config (Secrets set via UI) ---
       - key: R2_ENDPOINT_URL
         value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com"
@@ -56,26 +41,11 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A celery_app.celery worker --loglevel=info -c 1"
     envVars:
+      # --- REDIS URLs REMOVED - Will be added manually via UI ---
       - key: PYTHON_VERSION
         value: "3.12"
       - key: FLASK_ENV
         value: "production"
-      # Direct links to Redis defined above
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      - key: CELERY_BROKER_URL
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          type: redis
-          name: blueprint-redis
-          property: connectionString
       # --- R2/S3 Config (Secrets set via UI) ---
       - key: R2_ENDPOINT_URL
         value: "https://0948134cfe20aade9cfc72f11f995766.r2.cloudflarestorage.com"
