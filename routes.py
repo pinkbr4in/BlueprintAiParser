@@ -1,7 +1,10 @@
+# routes.py
+# --- Reverted to using rendering_utils.py for Markdown ---
+
 import sys
 import json
-import markdown
-import bleach
+# import markdown # No longer needed here
+# import bleach   # No longer needed here
 import re
 import uuid
 import os
@@ -21,7 +24,7 @@ except ImportError:
 # --- CSRF imports ---
 try:
     from flask_wtf.csrf import CSRFError
-    from app import csrf
+    from app import csrf # Assuming csrf is initialized in app.py
 except ImportError:
     CSRFError = None
     csrf = None
@@ -47,136 +50,33 @@ except ImportError:
     CHUNKED_UPLOAD_ENABLED = False
     print("ERROR (routes.py): Failed to import chunked upload routes.")
 
+# --- Import Rendering Utils --- ### USE THIS IMPORT ###
+try:
+    # Import the specific function needed from rendering_utils
+    from rendering_utils import blueprint_markdown
+    RENDERING_UTILS_AVAILABLE = True
+    print("INFO (routes.py): Successfully imported blueprint_markdown from rendering_utils.")
+except ImportError as e_render_routes:
+     print(f"ERROR (routes.py): Failed to import rendering_utils: {e_render_routes}")
+     RENDERING_UTILS_AVAILABLE = False
+     # Define a dummy if needed, although errors should ideally be caught later
+     def blueprint_markdown(text, logger): return Markup(f"<p>Rendering Error (Import Failed): {html.escape(str(text))}</p>") # Return Markup
+
 # ==============================================================================
 # Main Function to Register Routes
 # ==============================================================================
 def register_routes(app):
 
-    # --- Helper functions (defined within register_routes scope - from target) ---
-    def html_escape(text):
-        """Escapes text for use in HTML attribute values."""
-        if not text:
-            return ""
-        return html.escape(text, quote=True)
-
-    def clean_html_entities(html_content):
-        """Normalize HTML entities to prevent double escaping."""
-        replacements = [
-            ('&lt;', '<'), ('&gt;', '>'), ('&amp;', '&'),
-            ('&quot;', '"'), ('&#39;', "'")
-        ]
-        if not isinstance(html_content, str):
-            return html_content
-        for old, new in replacements:
-            html_content = html_content.replace(old, new)
-        return html_content
-
-    def blueprint_markdown(text):
-        """Convert markdown to HTML, preserving blueprint code blocks with spans intact."""
-        logger_md = current_app.logger
-
-        if not text:
-            return Markup("")
-        local_placeholder_storage = {}
-        def replace_blueprint_block(match):
-            block_content = match.group(1)
-            placeholder_uuid = str(uuid.uuid4())
-            placeholder_comment = f""
-            local_placeholder_storage[placeholder_comment] = block_content
-            return placeholder_comment
-
-        text_with_placeholders = re.sub(
-            r'```blueprint\r?\n(.*?)\r?\n```', replace_blueprint_block, text,
-            flags=re.DOTALL | re.IGNORECASE
-        )
-
-        try:
-            html_output_md = markdown.markdown(
-                text_with_placeholders,
-                extensions=['markdown.extensions.tables', 'markdown.extensions.fenced_code', 'markdown.extensions.nl2br']
-            )
-        except Exception as e:
-            logger_md.error(f"Error during markdown conversion: {e}", exc_info=True)
-            return Markup(f"<p>Error during Markdown processing: {html_escape(str(e))}</p>")
-
-        for placeholder, content in local_placeholder_storage.items():
-            escaped_content = html_escape(content)
-            blueprint_html = f'<pre class="blueprint"><code class="nohighlight blueprint-code" data-nohighlight="true">{Markup(escaped_content)}</code></pre>'
-            html_output_md = html_output_md.replace(placeholder, blueprint_html)
-
-        html_output_md = process_blueprint_tables(html_output_md, preserve_params=True)
-
-        allowed_tags = bleach.sanitizer.ALLOWED_TAGS | {
-            'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'hr', 'strong', 'em',
-            'ul', 'ol', 'li', 'pre', 'code', 'span', 'div', 'a', 'img', 'table',
-            'thead', 'tbody', 'tr', 'th', 'td', 'blockquote'
-        }
-        allowed_attrs = {
-            '*': ['class', 'id', 'style', 'data-nohighlight'],
-            'a': ['href', 'title', 'id', 'class', 'target'],
-            'img': ['src', 'alt', 'title', 'width', 'height'],
-            'code': ['class', 'data-nohighlight'],
-            'pre': ['class'],
-            'span': ['class', 'style'],
-            'td': ['colspan', 'rowspan', 'style', 'class'],
-            'th': ['colspan', 'rowspan', 'style', 'class'],
-            'div': ['class', 'style', 'id']
-        }
-        try:
-            clean_html = bleach.clean(str(html_output_md), tags=allowed_tags, attributes=allowed_attrs, strip=True)
-            clean_html = clean_html_entities(clean_html)
-        except Exception as e:
-            logger_md.error(f"Error during HTML sanitization: {e}", exc_info=True)
-            clean_html = f"<p>Error during HTML sanitization: {html_escape(str(e))}</p>"
-
-        return Markup(clean_html)
-
-    # Register the custom Markdown filter
-    app.jinja_env.filters['markdown'] = blueprint_markdown
-
-    def process_blueprint_tables(html_content_tbl, preserve_params=True):
-        """Process and enhance tables in Blueprint output."""
-        logger_tbl = current_app.logger
-
-        table_pattern = r'<table(.*?)>(.*?)</table>'
-        def process_table_match(match):
-            table_attrs = match.group(1)
-            table_content_inner = match.group(2)
-            current_classes = ""
-            class_attr_match = re.search(r'class=(["\'])(.*?)(\1)', table_attrs, re.IGNORECASE)
-            if class_attr_match:
-                current_classes = class_attr_match.group(2)
-                table_attrs = re.sub(r'\s*class=["\'].*?["\']', '', table_attrs, flags=re.IGNORECASE).strip()
-
-            new_classes_set = {"blueprint-table"}
-            if '<th>Function</th>' in table_content_inner and '<th>Target</th>' in table_content_inner:
-                new_classes_set.add("function-table")
-
-            final_classes = list(set(current_classes.split()) | new_classes_set)
-            if final_classes:
-                table_attrs += f' class="{" ".join(final_classes)}"'
-
-            processed_table = f'<table{table_attrs}>{table_content_inner}</table>'
-            return processed_table
-
-        if not isinstance(html_content_tbl, str):
-            return html_content_tbl
-
-        try:
-            processed_html = re.sub(table_pattern, process_table_match, html_content_tbl, flags=re.IGNORECASE | re.DOTALL)
-            return processed_html
-        except Exception as e:
-            logger_tbl.error(f"Error processing blueprint tables: {e}", exc_info=True)
-            return html_content_tbl
+    # --- REMOVED Local Helper functions ---
+    # --- REMOVED Jinja Filter ---
 
     # ==============================================================================
-    # Main Index Route (GET only now for form display)
+    # Main Index Route
     # ==============================================================================
     @app.route('/', methods=['GET'])
     def index():
         logger = current_app.logger
         logger.debug("GET request: Rendering initial page for upload.")
-        # Render the template containing the JS for chunked upload
         return render_template('index.html',
                                blueprint_output="",
                                ai_output="",
@@ -188,11 +88,11 @@ def register_routes(app):
                                processing_message=None)
 
     # ==============================================================================
-    # Task Status Check Route
+    # Task Status Check Route - USING IMPORTED RENDERER
     # ==============================================================================
     @app.route('/status/<task_id>', methods=['GET'])
     def task_status_check(task_id):
-        logger = current_app.logger
+        logger = current_app.logger # Get logger for rendering function
 
         if not celery:
             logger.error("Celery not available for status check.")
@@ -208,53 +108,83 @@ def register_routes(app):
                 "result": None,
                 "error": None
             }
+            processed_status = task.state
 
-            if task.state == 'SUCCESS':
+            if task.state == 'SUCCESS' or task.state == 'PARTIAL_FAILURE':
                 task_result_dict = task.result
                 if isinstance(task_result_dict, dict):
-                    response_data['result'] = task_result_dict
+                    logger.debug(f"Task {task_id} result dictionary received: Keys={list(task_result_dict.keys())}")
+
+                    rendered_output = ""
+                    rendered_stats = ""
+                    task_error = task_result_dict.get('error', '')
+
+                    if RENDERING_UTILS_AVAILABLE:
+                        try:
+                            raw_md = task_result_dict.get('output_markdown', '')
+                            raw_stats = task_result_dict.get('stats_markdown', '')
+                            logger.debug(f"Rendering output_markdown (len: {len(raw_md)}) and stats_markdown (len: {len(raw_stats)}) using rendering_utils...")
+
+                            # *** Call the IMPORTED blueprint_markdown function ***
+                            # It requires the logger instance as the second argument
+                            rendered_output_markup = blueprint_markdown(raw_md, logger)
+                            rendered_stats_markup = blueprint_markdown(raw_stats, logger)
+
+                            rendered_output = str(rendered_output_markup)
+                            rendered_stats = str(rendered_stats_markup)
+                            logger.debug("Markdown rendering complete in route using rendering_utils.")
+
+                        except Exception as render_err:
+                             logger.error(f"Error rendering markdown in status route using rendering_utils for task {task_id}: {render_err}", exc_info=True)
+                             rendered_output = f"<p><strong>Error rendering content:</strong> {html.escape(str(render_err))}</p>"
+                             rendered_stats = f"<p><strong>Error rendering stats:</strong> {html.escape(str(render_err))}</p>"
+                             response_data['error'] = f"Content rendering failed: {html.escape(str(render_err))}"
+                    else:
+                         logger.error(f"Rendering utils not available for task {task_id}.")
+                         rendered_output = "<p><strong>Server Error:</strong> Rendering utilities unavailable.</p>"
+                         rendered_stats = ""
+                         response_data['error'] = "Rendering utilities unavailable."
+
+                    frontend_result = {
+                        'output': rendered_output,
+                        'stats_summary': rendered_stats,
+                        'ai_output': task_result_dict.get('ai_output', ''),
+                        'error': task_error
+                    }
+                    response_data['result'] = frontend_result
+                    processed_status = task_result_dict.get('status', task.state)
+
                 else:
-                    logger.warning(f"Task {task_id} SUCCESS but result is not a dict: {type(task_result_dict)}")
-                    response_data['status'] = 'UNEXPECTED_RESULT'
+                    logger.warning(f"Task {task_id} {task.state} but result is not a dict: {type(task_result_dict)}")
+                    processed_status = 'UNEXPECTED_RESULT'
                     response_data['error'] = 'Task completed but result format was unexpected.'
+
             elif task.state == 'FAILURE':
                 task_result_info = task.result
                 logger.warning(f"Task {task_id} failed. Raw result/info: {task_result_info}")
                 if isinstance(task_result_info, dict) and 'error' in task_result_info:
-                    response_data['error'] = task_result_info.get('error', 'Task failed, specific error unknown.')
+                     response_data['error'] = task_result_info.get('error', 'Task failed, specific error unknown.')
                 elif isinstance(task_result_info, Exception):
-                    response_data['error'] = f"Task failed with exception: {str(task_result_info)}"
+                     response_data['error'] = f"Task failed with exception: {html.escape(str(task_result_info))}"
                 else:
-                    response_data['error'] = "Task failed during processing. Check server logs."
-            elif task.state in ('PENDING', 'STARTED', 'RECEIVED', 'RETRY'):
-                response_data['status'] = 'PROCESSING'
+                     response_data['error'] = "Task failed during processing. Check server logs for details."
+                processed_status = 'FAILURE'
 
-            logger.debug(f"Returning status for {task_id}: {response_data['status']}")
+            elif task.state in ('PENDING', 'STARTED', 'RECEIVED', 'RETRY'):
+                processed_status = 'PROCESSING'
+
+            else:
+                 processed_status = task.state
+                 logger.warning(f"Task {task_id} has unknown state: {task.state}")
+
+
+            response_data['status'] = processed_status
+            logger.debug(f"Returning status for {task_id}: {response_data['status']} (Result keys: {list(response_data.get('result', {}).keys()) if response_data.get('result') else 'None'})")
             return jsonify(response_data)
 
         except Exception as e_status:
             logger.error(f"Error checking Celery task status for {task_id}: {e_status}", exc_info=True)
             return jsonify({"status": "ERROR", "message": "Failed to retrieve task status."}), 500
-
-    # ==============================================================================
-    # Markdown Rendering Endpoint
-    # ==============================================================================
-    @app.route('/render', methods=['POST'])
-    @csrf.exempt
-    def render_markdown_snippet():
-        logger = current_app.logger
-        markdown_text = request.data.decode('utf-8')
-
-        if not markdown_text:
-            logger.warning("/render called with empty data.")
-            return "", 200
-
-        try:
-            rendered_html_markup = blueprint_markdown(markdown_text)
-            return str(rendered_html_markup), 200
-        except Exception as e:
-            logger.error(f"Error rendering markdown snippet via /render: {e}", exc_info=True)
-            return f"<p><strong>Error rendering content:</strong> {html.escape(str(e))}</p>", 500
 
     # ==============================================================================
     # Health Check Route
@@ -266,6 +196,8 @@ def register_routes(app):
     # ==============================================================================
     # Error Handlers
     # ==============================================================================
+    # ... (Keep existing error handlers: CSRF, 404, 500, 413, Exception) ...
+    # (Error handler code omitted for brevity, assume it's the same as previous correct version)
     if CSRFError and csrf:
         @app.errorhandler(CSRFError)
         def handle_csrf_error_json(e):
@@ -283,7 +215,8 @@ def register_routes(app):
     @app.errorhandler(500)
     def server_error(e):
         logger = current_app.logger
-        logger.error(f"500 Internal Server Error: {request.path}", exc_info=e)
+        original_exception = getattr(e, 'original_exception', e)
+        logger.error(f"500 Internal Server Error: {request.path}", exc_info=original_exception)
         if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
              return jsonify(error='Internal Server Error', message='An internal server error occurred.'), 500
         return render_template('error.html', error_code=500, error_message="Internal server error"), 500
@@ -291,24 +224,23 @@ def register_routes(app):
     if werkzeug:
         @app.errorhandler(413)
         @app.errorhandler(werkzeug.exceptions.RequestEntityTooLarge)
-        def request_entity_too_large_handler(e):
+        def handle_request_entity_too_large(e):
             logger = current_app.logger
-            logger.warning(f"413 Request Entity Too Large (handler): {request.path}", exc_info=False)
-            max_size = current_app.config.get('MAX_CONTENT_LENGTH', 50 * 1024 * 1024)
+            logger.warning(f"413 Request Entity Too Large: {request.path}", exc_info=False)
+            max_size = current_app.config.get('MAX_CONTENT_LENGTH', 500 * 1024 * 1024)
             max_size_mb = max_size // (1024 * 1024) if max_size else 'Unknown'
             error_msg = f"The submitted data is too large. Maximum size: {max_size_mb} MB."
-
-            if request.endpoint == 'index' and request.method == 'POST':
+            if request.endpoint and 'upload_chunk' in request.endpoint:
                  return jsonify(status='error', message=error_msg), 413
             if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
                  return jsonify(status='error', message=error_msg), 413
             return render_template('error.html', error_code=413, error_message=error_msg), 413
     else:
         @app.errorhandler(413)
-        def request_entity_too_large_handler_basic(e):
+        def handle_request_entity_too_large_basic(e):
              logger = current_app.logger
              logger.warning(f"413 Request Entity Too Large (basic handler): {request.path}", exc_info=False)
-             max_size = current_app.config.get('MAX_CONTENT_LENGTH', 50 * 1024 * 1024)
+             max_size = current_app.config.get('MAX_CONTENT_LENGTH', 500 * 1024 * 1024)
              max_size_mb = max_size // (1024 * 1024) if max_size else 'Unknown'
              error_msg = f"The submitted data is too large. Maximum size: {max_size_mb} MB."
              if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
@@ -320,10 +252,10 @@ def register_routes(app):
         logger = current_app.logger
         if werkzeug and isinstance(e, werkzeug.exceptions.HTTPException):
             return e
-
         logger.error(f"Unhandled Exception caught by generic handler: {request.path}", exc_info=True)
-
         if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
             return jsonify(status='error', message='An unexpected server error occurred.'), 500
         return render_template('error.html', error_code=500, error_message="An unexpected error occurred."), 500
 
+
+# --- END register_routes ---

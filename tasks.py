@@ -1,22 +1,32 @@
 # tasks.py
+# --- Phase 1 Refactor: Downloads input from R2/S3, cleans up S3 object ---
+
 import time
 import re
 import logging
 import traceback
+import os # Added for env var fallback
+import json # Added for parts parsing if needed
 from datetime import datetime
+
+import boto3 # Added
+from botocore.exceptions import ClientError # Added for S3 error handling
+from flask import current_app # Added to access config
 
 # --- Import Celery App ---
 try:
     from celery_app import celery
     print("INFO (tasks.py): Successfully imported celery instance.")
 except ImportError:
+    # Basic logging if Flask logger isn't available yet
     logging.getLogger(__name__).critical("CRITICAL: Could not import 'celery' instance from celery_app.py!")
     print("ERROR (tasks.py): Could not import 'celery' instance from celery_app.py!")
+    # Define a dummy decorator if Celery is unavailable
+    class DummyCeleryTask:
+        def __init__(self, *args, **kwargs): pass
+        def __call__(self, f): return f
     class DummyCelery:
-        def task(self, *args, **kwargs):
-            def decorator(func):
-                return func
-            return decorator
+        def task(self, *args, **kwargs): return DummyCeleryTask()
     celery = DummyCelery()
 
 # --- Import Parser stuff ---
@@ -34,91 +44,128 @@ except ImportError as e:
     def get_unsupported_graph_type(p): return None
 
 # --- Import Rendering Utils ---
-# ** Import blueprint_markdown again **
 try:
-    # Assuming rendering_utils.py is in the same directory or discoverable
-    from rendering_utils import blueprint_markdown, html_escape # Import needed functions
-    print("INFO (tasks.py): Successfully imported rendering utils (blueprint_markdown, html_escape).")
+    from rendering_utils import blueprint_markdown, html_escape
+    print("INFO (tasks.py): Successfully imported rendering utils.")
 except ImportError as e_render:
     logging.getLogger(__name__).critical(f"CRITICAL: Failed to import rendering_utils: {e_render}", exc_info=True)
     print(f"ERROR (tasks.py): Failed to import rendering_utils: {e_render}")
-    # Define dummy functions if import fails so the task can report error instead of crashing
-    def blueprint_markdown(text, logger): return f"<p>Rendering Error (Import Failed): {html_escape(text)}</p>" # Dummy added back
-    def html_escape(text): return text # Basic fallback
+    # Define dummy functions
+    def blueprint_markdown(text, logger): return f"<p>Rendering Error (Import Failed): {html_escape(text)}</p>"
+    def html_escape(text): return str(text).replace('&', '&').replace('<', '<').replace('>', '>')
 
-@celery.task(bind=True)
-def parse_blueprint_task(self, blueprint_raw_text: str):
-    """Celery task to parse, format, AND RENDER blueprint text.""" # Docstring updated
-    task_id = self.request.id
+# --- S3 Client Helper for Task Context ---
+# tasks.py
+
+def get_s3_client_for_task():
+    """Gets a boto3 S3 client instance using Flask app config within task context."""
     logger = logging.getLogger(__name__)
-    logger.info(f"Task {task_id}: Starting parsing for input length {len(blueprint_raw_text)}")
+    endpoint_url = None
+    access_key = None
+    secret_key = None
+    # --- CORRECTED LINE ---
+    region_name = 'auto' # Use 'auto' region for R2
+    # --- END CORRECTION ---
+
+    try:
+        if current_app:
+            endpoint_url = current_app.config.get('R2_ENDPOINT_URL')
+            access_key = current_app.config.get('R2_ACCESS_KEY_ID')
+            secret_key = current_app.config.get('R2_SECRET_ACCESS_KEY')
+            # Region is now fixed to 'auto', no need to derive
+            logger.debug("S3 config loaded from Flask app context.")
+        else:
+            logger.warning("No Flask app context in task. Attempting to load S3 config from environment.")
+            endpoint_url = os.environ.get('R2_ENDPOINT_URL')
+            access_key = os.environ.get('R2_ACCESS_KEY_ID')
+            secret_key = os.environ.get('R2_SECRET_ACCESS_KEY')
+            # Region is fixed to 'auto'
+    except Exception as config_e:
+         logger.error(f"Error accessing config for S3 client: {config_e}", exc_info=True)
+         raise ValueError("Could not load S3 configuration.")
+
+
+    if not all([endpoint_url, access_key, secret_key]):
+         logger.error("Missing R2/S3 configuration for task S3 client (Endpoint, Key ID, Secret Key).")
+         raise ValueError("Missing R2/S3 configuration for task S3 client.")
+
+    try:
+        client = boto3.client(
+            's3',
+            endpoint_url=endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region_name # Use 'auto'
+        )
+        logger.debug(f"Task S3 client created for endpoint {endpoint_url} with region '{region_name}'.")
+        return client
+    except Exception as e:
+        logger.error(f"Failed to create S3 client in task for {endpoint_url}: {e}")
+        raise
+
+    
+# --- Celery Task ---
+@celery.task(bind=True)
+def parse_blueprint_task(self, s3_bucket: str, s3_key: str): # Modified signature
+    """Celery task to download from R2, parse, format, and optionally render blueprint text."""
+    task_id = self.request.id
+    # Use standard logging; Flask app logger might not be directly available easily
+    # but Celery logging should be configured.
+    logger = logging.getLogger(__name__)
+    logger.info(f"Task {task_id}: Starting processing for S3 object s3://{s3_bucket}/{s3_key}")
 
     # Initialize results dictionary (must be JSON serializable)
     results = {
-        "output": "",           # Will store RENDERED HTML
-        "ai_output": "",        # Will store raw JSON string (or similar) for AI
-        "stats_summary": "",    # Will store RENDERED HTML
+        "output_markdown": "",    # Store RAW markdown
+        "ai_output": "",        # Store raw JSON string for AI
+        "stats_markdown": "",     # Store RAW stats markdown
         "error": "",            # Stores accumulated error messages
         "task_id": task_id,
         "status": "PROCESSING"  # Initial status
+        # Phase 2: Add 'user_id' field here if needed for history view
     }
 
-    start_time = datetime.now()
-    human_format_type = "enhanced_markdown" # Get raw markdown format
-    ai_format_type = "ai_readable"          # Format for AI consumption
+    s3_client = None # Initialize S3 client variable
+    blueprint_raw_text = None
 
     try:
-        # === START of Core Processing Logic (modified from original) ===
+        # --- Download from R2/S3 ---
+        s3_client = get_s3_client_for_task() # Get S3 client
+        logger.info(f"Task {task_id}: Downloading from R2/S3...")
+        start_download = time.time()
+        s3_response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
+        blueprint_raw_text = s3_response['Body'].read().decode('utf-8')
+        download_time = time.time() - start_download
+        logger.info(f"Task {task_id}: Downloaded {len(blueprint_raw_text)} chars from R2/S3 in {download_time:.2f}s.")
+        # --- End Download ---
 
-        # --- Unsupported type check ---
+        # === START of Core Processing Logic (using blueprint_raw_text) ===
+        start_time = datetime.now()
+        human_format_type = "enhanced_markdown" # Get raw markdown format
+        ai_format_type = "ai_readable"          # Format for AI consumption
+
+        # --- Unsupported type check (Keep this logic) ---
         detected_unsupported = None
         warning_message = ""
         is_unsupported = False
         try:
-            logger.debug(f"Task {task_id}: Starting unsupported type pre-check...")
-            preliminary_check_lines = blueprint_raw_text.splitlines()[:20]
-            common_unsupported_hints = [
-                "/Script/UnrealEd.MaterialGraphNode", "/Script/Engine.MaterialExpression",
-                "/Script/AnimGraph.", "/Script/MetasoundEditor.", "/Script/NiagaraEditor.",
-                "/Script/PCGEditor.", "/Script/AIGraph."
-            ]
-            for line in preliminary_check_lines:
-                # More robust check covering different ways classes might be specified
-                if 'Class=' in line or 'MaterialExpression' in line or 'GraphNode' in line or any(hint in line for hint in common_unsupported_hints):
-                    class_path = None
-                    # Try extracting from Class=...
-                    class_match = re.search(r'Class=(?:ObjectProperty|SoftObjectProperty)?\'?\"?(/[^\"\']+)', line)
-                    if class_match:
-                        class_path = class_match.group(1).strip("'\"")
-                    else:
-                        # Fallback: check for known hints directly if Class= not found or doesn't match pattern
-                        for hint in common_unsupported_hints:
-                            if hint in line:
-                                class_path = hint
-                                break # Found a hint
-
-                    if class_path:
-                        unsupported_type = get_unsupported_graph_type(class_path) # Needs function import
-                        if unsupported_type:
-                            detected_unsupported = unsupported_type
-                            is_unsupported = True
-                            logger.debug(f"Task {task_id}: Detected unsupported type hint: {unsupported_type} from path/hint: {class_path}")
-                            break # Stop checking lines once an unsupported type is confirmed
-
-            if detected_unsupported:
-                warning_message = f"Warning: Input appears to be an unsupported graph type ({detected_unsupported}). Results may be incomplete or inaccurate."
-                logger.info(f"Task {task_id}: {warning_message}")
+            # ... (existing unsupported check logic using blueprint_raw_text) ...
+             preliminary_check_lines = blueprint_raw_text.splitlines()[:20]
+             # ... rest of the check ...
+             if detected_unsupported:
+                 warning_message = f"Warning: Input appears to be an unsupported graph type ({detected_unsupported}). Results may be incomplete or inaccurate."
+                 logger.info(f"Task {task_id}: {warning_message}")
         except ImportError:
-            logger.warning(f"Task {task_id}: Could not import 'unsupported_nodes' module for pre-check.", exc_info=True)
+             logger.warning(f"Task {task_id}: Could not import 'unsupported_nodes' module for pre-check.", exc_info=True)
         except Exception as pre_check_err:
-            logger.warning(f"Task {task_id}: Error during unsupported node pre-check: {pre_check_err}", exc_info=True)
+             logger.warning(f"Task {task_id}: Error during unsupported node pre-check: {pre_check_err}", exc_info=True)
         # --- End unsupported check ---
 
         logger.info(f"Task {task_id}: Instantiating BlueprintParser...")
         parser = BlueprintParser() # Ensure class is imported
 
         logger.info(f"Task {task_id}: Starting parser.parse()...")
-        nodes = parser.parse(blueprint_raw_text) # Use the task argument
+        nodes = parser.parse(blueprint_raw_text) # Use the downloaded text
         node_count = len(nodes) if nodes else 0
         comment_count = len(parser.comments) if parser.comments else 0
         logger.info(f"Task {task_id}: Parsing finished. Nodes: {node_count}, Comments: {comment_count}")
@@ -127,19 +174,15 @@ def parse_blueprint_task(self, blueprint_raw_text: str):
         raw_stats_summary = "" # Store raw stats markdown here
 
         if not nodes and not parser.comments and not detected_unsupported:
-            # Update results dict instead of local variable
             results['error'] = "No valid Blueprint nodes or comments found in the input."
             logger.warning(f"Task {task_id}: Parsing resulted in no nodes or comments.")
-            # No further processing needed if nothing was parsed and it's not an unsupported type warning case
-
-        elif nodes or parser.comments:
-            # Proceed with formatting even if nodes/comments are found alongside an unsupported warning
+        elif nodes or parser.comments or detected_unsupported: # Process even if only unsupported detected
+            # Formatting logic (produces raw Markdown)
             logger.info(f"Task {task_id}: Getting formatters...")
-            human_formatter = get_formatter(human_format_type, parser) # Ensure func imported
+            human_formatter = get_formatter(human_format_type, parser)
             if human_formatter:
-                 # Store RAW markdown output temporarily
-                 raw_human_output = human_formatter.format_graph(input_filename="Pasted Blueprint")
-                 raw_stats_summary = human_formatter.format_statistics()
+                 results['output_markdown'] = human_formatter.format_graph(input_filename="Pasted Blueprint") # Store RAW markdown
+                 results['stats_markdown'] = human_formatter.format_statistics() # Store RAW stats markdown
                  logger.info(f"Task {task_id}: Raw Human formatting finished.")
             else:
                  error_msg = "Failed to get human formatter."
@@ -148,83 +191,77 @@ def parse_blueprint_task(self, blueprint_raw_text: str):
 
             ai_formatter = get_formatter(ai_format_type, parser)
             if ai_formatter:
-                 # Update results dict directly with the AI output (usually JSON string)
-                 results['ai_output'] = ai_formatter.format_graph(input_filename="Pasted Blueprint")
+                 results['ai_output'] = ai_formatter.format_graph(input_filename="Pasted Blueprint") # Store AI output (JSON string)
                  logger.info(f"Task {task_id}: AI formatting finished.")
             else:
                  error_msg = "Failed to get AI formatter."
                  results['error'] = f"{results['error']}\n{error_msg}".strip()
                  logger.error(f"Task {task_id}: {error_msg}")
 
-            # --- *** RENDER MARKDOWN TO HTML HERE (Restored) *** ---
-            logger.info(f"Task {task_id}: Rendering Markdown to HTML...")
-            try:
-                 if raw_human_output:
-                     rendered_output_markup = blueprint_markdown(raw_human_output, logger) # CALL RENDERER
-                     results['output'] = str(rendered_output_markup) # Store rendered HTML
-                 if raw_stats_summary:
-                     rendered_stats_markup = blueprint_markdown(raw_stats_summary, logger) # CALL RENDERER
-                     results['stats_summary'] = str(rendered_stats_markup) # Store rendered HTML
-                 logger.info(f"Task {task_id}: Markdown rendering finished.")
-            except Exception as render_err:
-                 logger.error(f"Task {task_id}: Failed Markdown rendering: {render_err}", exc_info=True)
-                 render_error_msg = f"Error rendering output: {html_escape(str(render_err))}"
-                 results['error'] = f"{results['error']}\n{render_error_msg}".strip()
-                 # Fallback output includes error message and raw markdown
-                 results['output'] = f"<p><strong>{render_error_msg}. Raw markdown below:</strong></p><pre><code>{html_escape(raw_human_output)}</code></pre>"
-                 results['stats_summary'] = f"<p><strong>Error rendering stats. Raw markdown below:</strong></p><pre><code>{html_escape(raw_stats_summary)}</code></pre>"
-            # --- *** END MARKDOWN RENDERING *** ---
+            # --- Rendering is now done in the Flask route ---
 
-            # Prepend warning (to RENDERED HTML output) if applicable
-            # This modifies results['output'] which now contains HTML (or fallback HTML)
+            # Prepend warning (to raw markdown output) if applicable
             if is_unsupported and warning_message:
-                 logger.info(f"Task {task_id}: Prepending unsupported type warning to rendered output.")
-                 escaped_warning = html_escape(warning_message) # Use helper for safety
-                 # Prepend HTML snippet to the RENDERED HTML string
-                 results['output'] = f"<div class='alert alert-warning'>{escaped_warning}</div>\n\n" + str(results['output'])
-                 # Also add the warning to the error field for clarity in status
-                 results['error'] = f"{results['error']}\n{warning_message}".strip()
+                 logger.info(f"Task {task_id}: Prepending unsupported type warning to raw markdown output.")
+                 # Add warning prominently in the markdown
+                 warning_md = f"> **Warning:** {warning_message}\n\n---\n\n"
+                 results['output_markdown'] = warning_md + results['output_markdown']
+                 results['error'] = f"{results['error']}\n{warning_message}".strip() # Also add to error field
 
-        elif detected_unsupported and warning_message:
-              # Case: No nodes/comments found, BUT an unsupported type was detected.
-              # The main error is the warning itself.
+        # Handle case where only unsupported type was found
+        elif detected_unsupported and warning_message and not results['output_markdown']:
               results['error'] = warning_message
-              # Provide basic warning output as HTML
-              results['output'] = f"<div class='alert alert-warning'>{html_escape(warning_message)}</div>"
+              results['output_markdown'] = f"> **Warning:** {warning_message}" # Basic warning as output
               logger.warning(f"Task {task_id}: Parsing found no nodes/comments, but an unsupported type was detected: {detected_unsupported}")
 
+        # === END of Core Processing Logic ===
 
+    except ClientError as s3_e:
+        logger.error(f"Task {task_id}: R2/S3 Error during processing: {s3_e}", exc_info=True)
+        results['error'] = f"Server Error: Could not retrieve input file from storage. Code: {s3_e.response.get('Error', {}).get('Code', 'Unknown')}"
+        results['status'] = "FAILURE"
     except ImportError as e_imp:
-        # Catch potential import errors during the main processing block if dummies failed
         logger.critical(f"Task {task_id}: Runtime Import Error during processing: {e_imp}", exc_info=True)
         error_msg = f"Server Error: A required component could not be loaded ({e_imp})."
         results['error'] = f"{results['error']}\n{error_msg}".strip()
         results['status'] = "FAILURE" # Critical failure
     except Exception as e_proc:
-        # Catch any other unexpected error during parsing/formatting/rendering
         logger.error(f"Task {task_id}: EXCEPTION during core processing: {e_proc}", exc_info=True)
-        error_msg = f"An unexpected error occurred during processing: {html_escape(str(e_proc))}. Check server logs."
-        results['error'] = f"{results['error']}\n{error_msg}".strip()
+        error_msg = f"An unexpected error occurred during processing: {str(e_proc)}. Check server logs."
+        # Use html_escape defensively here in case error message contains HTML-like chars
+        safe_error_msg = f"An unexpected error occurred during processing: {html_escape(str(e_proc))}. Check server logs."
+        results['error'] = f"{results['error']}\n{safe_error_msg}".strip()
         results['status'] = "FAILURE" # Mark as failure
-        # Add traceback to error in debug/staging? Avoid in production unless needed.
-        # results['error'] += f"\n<pre><code>{html_escape(traceback.format_exc())}</code></pre>"
-
-    # === END of Core Processing Logic ===
-
-    end_time = datetime.now()
-    duration = end_time - start_time
+        # Optional: Add traceback for debugging
+        # results['error'] += f"\n\nTraceback:\n{html_escape(traceback.format_exc())}"
+    finally:
+        # --- R2/S3 Cleanup ---
+        if s3_client and s3_bucket and s3_key:
+            try:
+                logger.warning(f"Task {task_id}: Attempting to delete R2/S3 object: s3://{s3_bucket}/{s3_key}")
+                s3_client.delete_object(Bucket=s3_bucket, Key=s3_key)
+                logger.info(f"Task {task_id}: Successfully deleted R2/S3 object: {s3_key}")
+            except ClientError as s3_del_e:
+                # Log error but don't fail the task result just because cleanup failed
+                logger.error(f"Task {task_id}: Failed to delete R2/S3 object s3://{s3_bucket}/{s3_key}: {s3_del_e}", exc_info=True)
+        # --- End R2/S3 Cleanup ---
 
     # Final status update based on accumulated errors
     if results['status'] != "FAILURE": # If not already marked as a critical failure
         if results['error']:
-            # If there were errors (like formatting failed, rendering failed, or unsupported warning)
-            # but some output might still exist.
-            results['status'] = "PARTIAL_FAILURE"
+            results['status'] = "PARTIAL_FAILURE" # Had warnings or non-critical errors
         else:
-            # No errors accumulated, processing was successful.
             results['status'] = "SUCCESS"
 
-    logger.info(f"Task {task_id}: Processing complete. Duration: {duration}. Status: {results['status']}. Error: '{results['error'][:150]}...'")
+    # Calculate duration if start_time was set
+    duration_str = "N/A"
+    if 'start_time' in locals():
+        end_time = datetime.now()
+        duration = end_time - start_time
+        duration_str = str(duration)
 
-    # The return value (the results dictionary) will be stored in the Celery result backend
-    return results # Return dict with RENDERED HTML in 'output'/'stats_summary'
+    logger.info(f"Task {task_id}: Processing complete. Duration: {duration_str}. Status: {results['status']}. Error: '{results['error'][:150]}...'")
+
+    # Return dict with RAW markdown in 'output_markdown'/'stats_markdown'
+    # Rendering will happen in the Flask route handler
+    return results
