@@ -6,7 +6,6 @@ services:
     name: blueprint-parser-web # You can rename this during Blueprint setup if desired
     env: python
     plan: free
-    pythonVersion: "3.12"
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn wsgi:application"
     envVars:
@@ -54,7 +53,6 @@ services:
     name: blueprint-parser-worker
     env: python
     plan: free
-    pythonVersion: "3.12"
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A celery_app.celery worker --loglevel=info -c 1"
     envVars:
